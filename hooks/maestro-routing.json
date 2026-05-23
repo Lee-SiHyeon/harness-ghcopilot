@@ -1,0 +1,50 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/maestro-router.js",
+        "windows": "node .github/hooks/scripts/maestro-router.js",
+        "timeout": 5
+      }
+    ],
+    "SubagentStart": [
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/todo-inject-subagent.js",
+        "windows": "node .github/hooks/scripts/todo-inject-subagent.js",
+        "timeout": 5
+      }
+    ],
+    "SubagentStop": [
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/subagent-stop-logger.js",
+        "windows": "node .github/hooks/scripts/subagent-stop-logger.js",
+        "timeout": 3
+      }
+    ],
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/pipeline-logger.js",
+        "windows": "node .github/hooks/scripts/pipeline-logger.js",
+        "timeout": 2
+      },
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/test-gate.js",
+        "windows": "node .github/hooks/scripts/test-gate.js",
+        "timeout": 5
+      }
+    ],
+    "PreCompact": [
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/precompact-save.js",
+        "windows": "node .github/hooks/scripts/precompact-save.js",
+        "timeout": 5
+      }
+    ]
+  }
+}

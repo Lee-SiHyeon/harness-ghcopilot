@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/safety-guard.js",
+        "windows": "node .github/hooks/scripts/safety-guard.js",
+        "timeout": 3,
+        "matcher": {
+          "toolName": ["run_in_terminal", "execute_command"]
+        }
+      },
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/file-guard.js",
+        "windows": "node .github/hooks/scripts/file-guard.js",
+        "timeout": 3,
+        "matcher": {
+          "toolName": ["edit_file", "create_file", "delete_file", "rename_file", "move_file", "write_file", "replace_string_in_file", "multi_replace_string_in_file", "insert_edit_into_file", "edit_notebook_file", "apply_patch"]
+        }
+      }
+    ]
+  }
+}

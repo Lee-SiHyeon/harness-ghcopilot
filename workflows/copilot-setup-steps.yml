@@ -1,0 +1,45 @@
+name: Copilot Setup Steps
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 59
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Node.js dependencies
+        run: npm ci --ignore-scripts
+        if: hashFiles('package.json') != ''
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+        if: hashFiles('pyproject.toml', 'requirements.txt', 'setup.py') != ''
+
+      - name: Install Python dependencies
+        run: pip install -e ".[dev]" --quiet
+        if: hashFiles('pyproject.toml') != ''
+
+      - name: Verify environment
+        run: |
+          echo "Node: $(node --version 2>/dev/null || echo 'not installed')"
+          echo "npm: $(npm --version 2>/dev/null || echo 'not installed')"
+          echo "Python: $(python --version 2>/dev/null || echo 'not installed')"
