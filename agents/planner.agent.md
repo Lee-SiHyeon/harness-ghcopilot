@@ -2,7 +2,8 @@
 name: Planner
 description: 구현 전 설계·계획 전문 에이전트. 코드를 수정하지 않고 읽기 전용으로 분석하여 상세한 구현 계획서를 작성한다.
 tools: [read, search, web, todo, 'context7/*']
-model: Claude Sonnet 4.6 (copilot)
+model: [Claude Opus 4.7 (copilot), GPT-5.5 (copilot), Claude Sonnet 4.6 (copilot)]
+
 handoffs:
   - label: Implement - 구현 시작
     agent: Implementer

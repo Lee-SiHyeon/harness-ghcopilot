@@ -130,9 +130,112 @@ function formatResumeBlock(state) {
 
 // ── Maestro: LLM 분류 스킵, todo만 주입 ──────────────────────────
 if (agentName === 'Maestro') {
+  // 과거 회고 패턴 로드 (복잡한 파이프라인에서만)
+  function loadRetrospectiveLearnings() {
+    try {
+      // retrospective-history.md: Maestro가 각 파이프라인 완료 후 append하는 로컬 파일
+      const memPath = path.join(process.cwd(), '.github', 'logs', 'retrospective-history.md');
+      let content = null;
+      try { content = fs.readFileSync(memPath, 'utf8'); } catch { /* not yet created */ }
+      if (!content) return null;
+
+      const lines = content.split('\n');
+      // "반복 패턴" 섹션 추출
+      const patternStart = lines.findIndex(l => l.startsWith('## 반복 패턴'));
+      let patternBlock = '';
+      if (patternStart !== -1) {
+        const end = lines.findIndex((l, i) => i > patternStart && l.startsWith('## '));
+        const slice = end === -1 ? lines.slice(patternStart) : lines.slice(patternStart, end);
+        patternBlock = slice.join('\n').trim();
+      }
+
+      // 최근 3개 "다음 번 개선" 항목 추출
+      const improvements = lines
+        .filter(l => l.startsWith('**다음 번 개선**:'))
+        .map(l => l.replace('**다음 번 개선**:', '').trim())
+        .slice(-3);
+
+      if (!patternBlock && improvements.length === 0) return null;
+
+      let block = '\n## [📚 과거 회고 패턴 — 이번 작업 시 유의]\n';
+      if (patternBlock) block += '\n' + patternBlock + '\n';
+      if (improvements.length > 0) {
+        block += '\n### 최근 개선 사항\n';
+        improvements.forEach(imp => { block += `- ${imp}\n`; });
+      }
+      return block;
+    } catch { return null; }
+  }
+
+  // 미해결 actionItems 로드
+  function loadActionItems() {
+    try {
+      const draftPath = path.join(process.cwd(), '.github', 'logs', 'retrospective-draft.json');
+      const raw = JSON.parse(fs.readFileSync(draftPath, 'utf8'));
+      const items = (raw.actionItems || []).filter(item =>
+        item && typeof item.message === 'string'
+      );
+      if (items.length === 0) return null;
+      const lines = ['## [⚠️ 미해결 개선 항목 — 이번 세션에서 처리 필요]'];
+      items.forEach((item, i) => {
+        const label = sanitizeForPrompt(item.agent || item.source || '?', 30);
+        const msg   = sanitizeForPrompt(item.message, 150);
+        lines.push(`${i + 1}. [${label}] ${msg}`);
+      });
+      lines.push('', '> 이 항목들을 fix 파이프라인으로 처리하거나 사용자에게 확인 후 진행한다.');
+      lines.push('> 처리 완료 후 retrospective-draft.json의 actionItems를 빈 배열([])로 초기화한다.');
+      return lines.join('\n');
+    } catch { return null; }
+  }
+
+  // ── 인터럽트 감지: in-progress 항목 확인 ─────────────────────
+  function getInProgressTodos() {
+    const stateFile = path.resolve(process.cwd(), '.github', 'logs', 'current-todos.json');
+    try {
+      const raw = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      return (raw.todos || []).filter(t => t.status === 'in-progress');
+    } catch (_) { return []; }
+  }
+
   const savedTodos  = loadSavedTodos();
   const resumeBlock = formatResumeBlock(loadPrecompactState());
   const parts = [];
+  const inProgressTodos = getInProgressTodos();
+  if (inProgressTodos.length > 0) {
+    const lines = ['## [⚠️ 인터럽트 감지 — 진행 중 작업 있음]'];
+    for (const t of inProgressTodos) lines.push(`🔄 ${sanitizeForPrompt(t.title, 100)}`);
+    lines.push('', '> 새 요청 처리 전 현재 파이프라인 중단 여부를 사용자에게 확인하거나, 현재 작업 완료 후 처리한다. 컨텍스트를 혼용하지 않는다.');
+    parts.push(lines.join('\n'));
+  }
+  // ── actionItems 건수 조회 (📋 템플릿 동적 구성용) ─────────────────
+  function loadActionItemsCount() {
+    try {
+      const draftPath = path.join(process.cwd(), '.github', 'logs', 'retrospective-draft.json');
+      const raw = JSON.parse(fs.readFileSync(draftPath, 'utf8'));
+      const items = (raw.actionItems || []).filter(item =>
+        item && typeof item.message === 'string'
+      );
+      return items.length;
+    } catch { return 0; }
+  }
+
+  // ── 필수 첫 출력 강제 (매 요청, 예외 없음) ──────────────────────
+  const actionCount = loadActionItemsCount();
+  const pipelineLine = actionCount >= 1
+    ? `📋 **파이프라인**: [자가비평 ${actionCount}건 처리] → [에이전트1] → [에이전트2] → ...`
+    : '📋 **파이프라인**: [에이전트1] → [에이전트2] → ...';
+  parts.push(
+    '## [⚠️ 필수 — 응답 첫 줄 출력 의무]',
+    '아래 블록을 **응답의 첫 줄로** 반드시 출력한다. 단순 질문·짧은 답변도 예외 없음.',
+    '```',
+    '🎯 **작업 유형**: [분류 결과]',
+    pipelineLine,
+    '```',
+    '이 블록 없이 내용을 출력하거나 에이전트를 호출하면 규칙 위반이다.',
+  );
+  // 미해결 개선 항목 경고 주입
+  const actionWarning = loadActionItems();
+  if (actionWarning) parts.push(actionWarning);
   if (resumeBlock) parts.push(resumeBlock);
   parts.push(
     '## [Maestro todo 가이드]',
@@ -141,10 +244,16 @@ if (agentName === 'Maestro') {
     '2. 각 에이전트 호출을 `in-progress`로 변경 후 위임한다.',
     '3. 에이전트 완료 즉시 `completed`로 표시한다.',
     '4. Reviewer 승인 후 전체 todo를 최종 확인한다.',
+    '5. **complexity ≥ 3이면 마지막 todo로 `Retrospective 기록` 항목을 반드시 추가한다.** 훅이 실행 데이터를 자동 기록하므로, Maestro는 자기비평과 개선점을 retrospective-history.md 최신 항목에 기입한다.',
     '',
     '> 계획 없이 에이전트를 호출하는 것은 허용되지 않는다.',
   );
   if (savedTodos) parts.push('', savedTodos);
+  // 과거 회고 패턴 주입 (복잡한 파이프라인에서만)
+  if (savedTodos && savedTodos.length > 0) {
+    const retroBlock = loadRetrospectiveLearnings();
+    if (retroBlock) parts.push(retroBlock);
+  }
   parts.push('', '## [원본 요청]', prompt);
   const promptSummary = audit ? audit.summarize(prompt, 100) : prompt.slice(0, 100);
   tryAudit({ event: 'maestro_passthrough', source: 'UserPromptSubmit', agentName, promptSummary });
@@ -160,18 +269,21 @@ const SYSTEM_PROMPT = `CRITICAL INSTRUCTION: You must respond with ONLY a raw JS
 You classify coding tasks for a multi-agent system called Maestro.
 
 Required JSON schema (fill in values based on the user request):
-{"intent":"implement","complexity":5,"scope":"single","security":[],"stacks":[],"task_count":1,"pipeline":["Planner","Implementer","Reviewer"],"needs_todo":true,"reason":"Korean 1-sentence reason"}
+{"intent":"implement","complexity":5,"scope":"single","security":[],"stacks":[],"task_count":1,"pipeline":["Planner","Implementer","Tester","Reviewer"],"needs_todo":true,"reason":"Korean 1-sentence reason"}
 
 Field rules:
-- intent: "implement"(new code) | "fix"(bug) | "investigate"(root cause analysis, debugging) | "review"(audit) | "document"(docs) | "plan"(design only) | "question"(explain) | "query"(simple lookup)
+- intent: "implement"(new code) | "fix"(bug) | "investigate"(root cause analysis, debugging) | "review"(audit) | "document"(docs) | "plan"(design only) | "question"(explain) | "query"(simple lookup) | "release"(version bump, publish, deploy)
 - complexity: 0-10 integer (simple=1-2, moderate=4-5, complex=7-8, architecture=9-10)
 - scope: "single"(one file) | "multi"(several files) | "architecture"(whole project)
 - security: subset of ["auth","password","api-key","session","db-query","env-vars","crypto","vuln-pattern"]
 - stacks: detected frameworks e.g. ["Next.js","Prisma","Supabase"]
 - task_count: number of distinct subtasks (1-10)
-- pipeline: ordered agent list from ["Context7 Docs Agent","Planner","Implementer","Reviewer","Documenter","Investigator"]
-- For intent=fix: pipeline MUST start with Investigator: ["Investigator","Implementer","Reviewer"]
+- pipeline: ordered agent list from ["Context7 Docs Agent","Planner","Implementer","Tester","Reviewer","Documenter","Investigator","Release","Critic"]
+- For intent=fix: pipeline MUST start with Investigator: ["Investigator","Implementer","Tester","Reviewer"]
 - For intent=investigate: pipeline is ["Investigator"] only
+- If user observes something is MISSING or NOT CONNECTED in the project (e.g., "왜 X가 없지", "X가 빠져있어", "X가 누락됐어") → intent="fix" NOT "investigate"
+- For intent=release: pipeline is ["Release","Critic"] only (do NOT add Release at end)
+- For all other intents: pipeline MUST end with "Critic","Release" in that order
 - needs_todo: true if complexity >= 3
 - reason: one Korean sentence explaining the classification
 
@@ -247,11 +359,16 @@ function classifyWithRegex(p) {
   let intent = 'query';
   // review/audit는 question보다 먼저 평가 — review+question 혼합 프롬프트는 review로 처리
   if (/리뷰|검토|확인해|review|audit/i.test(p))                               intent = 'review';
+  // discovery 패턴: ?$ 보다 먼저 체크 ("없는 것 같지?" 등 포함)
+  else if (/없[는것지](\s*것)?\s*같[지다아]?|빠져\s*있|누락\s*됐|안\s*연결|not.*wired|missing.*pipeline|missing.*agent/i.test(p)) intent = 'fix';
+  // investigate 강력 패턴: "왜+오류/버그/안 되" 조합 → ?$ 보다 먼저 체크
+  else if (/왜.*(?:안\s*되|안\s*됨|에러|오류|버그|실패|crash)|(?:에러|오류|버그).*왜/i.test(p)) intent = 'investigate';
   else if (/\?$|뭐야|알려줘|설명해줘|what\s+is|how\s+does|explain/i.test(p)) intent = 'question';
   else if (/문서화|docs|document/i.test(p))                                    intent = 'document';
   else if (/왜|원인|루트|디버그|조사|investigate/i.test(p))                    intent = 'investigate';
   else if (/고쳐|버그|에러|fix|debug/i.test(p))                                intent = 'fix';
   else if (/설계|계획|plan|design|architect/i.test(p))                         intent = 'plan';
+  else if (/릴리즈|배포해|버전.*올려|publish|deploy(?!ment)|release/i.test(p)) intent = 'release';
   else if (/만들어|추가해|구현해|build|create|implement/i.test(p))              intent = 'implement';
 
   let complexity = 0;
@@ -282,12 +399,13 @@ function classifyWithRegex(p) {
   for (const [re, name] of LIBS) if (new RegExp(re,'i').test(p)) stacks.push(name);
 
   const PIPELINE_MAP = {
-    question: ['Context7 Docs Agent'], query: ['Context7 Docs Agent'],
-    document: ['Context7 Docs Agent','Documenter'], review: ['Reviewer'],
-    plan: ['Planner'],
-    fix: ['Investigator','Implementer','Reviewer'],
-    investigate: ['Investigator'],
-    implement: ['Planner','Implementer','Reviewer'],
+    question: ['Context7 Docs Agent','Critic','Release'], query: ['Context7 Docs Agent','Critic','Release'],
+    document: ['Context7 Docs Agent','Documenter','Critic','Release'], review: ['Reviewer','Critic','Release'],
+    plan: ['Planner','Critic','Release'],
+    fix: ['Investigator','Implementer','Tester','Reviewer','Critic','Release'],
+    investigate: ['Investigator','Critic','Release'],
+    implement: ['Planner','Implementer','Tester','Reviewer','Critic','Release'],
+    release: ['Release','Critic'],
   };
 
   return {
@@ -339,7 +457,7 @@ function buildOutput(analysis, usedLLM) {
   }
 
   // ── 시간예산 추정 ──────────────────────────────────────────────
-  const timePerAgent = { Planner: 1, Investigator: 2, Implementer: 2, Reviewer: 1, Documenter: 2, 'Context7 Docs Agent': 1 };
+  const timePerAgent = { Planner: 1, Investigator: 2, Implementer: 2, Tester: 2, Reviewer: 1, Documenter: 2, 'Context7 Docs Agent': 1, Release: 3, Critic: 1 };
   const estMinutes = pipeline.reduce((sum, a) => sum + (timePerAgent[a] || 1), 0) * task_count;
   const timeBudget = `⏱ 예상 소요: ~${estMinutes}분 (에이전트 ${pipeline.length}개 × 작업 ~${task_count}개)`;
 
@@ -350,6 +468,8 @@ function buildOutput(analysis, usedLLM) {
     '2. 각 항목을 `in-progress`로 변경한 뒤 작업을 시작한다.',
     '3. 완료 즉시 `completed`로 표시한다.',
     '4. 모든 작업 완료 후 todo 목록을 최종 확인한다.',
+    '5. implement/fix 파이프라인은 Tester를 Reviewer 직전 독립 todo 항목으로 반드시 추가한다.',
+    '6. **마지막 todo는 반드시 Critic 호출** — H1~H6 파이프라인 준수 검증. Critic PASS 전까지 파이프라인 종료 불가.',
     '',
     '> todo 없이 `edit` / `execute` 도구를 사용하는 것은 허용되지 않는다.',
   ].join('\n') : null;

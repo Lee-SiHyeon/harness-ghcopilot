@@ -7,7 +7,7 @@ description: >
 
 argument-hint: '[증상 설명] (예: TypeError 발생, API 500 오류, 빌드 실패)'
 
-model: Claude Sonnet 4.6 (copilot)
+model: [Claude Opus 4.7 (copilot), GPT-5.5 (copilot), Claude Sonnet 4.6 (copilot)]
 
 tools: [read, search, web, todo]
 

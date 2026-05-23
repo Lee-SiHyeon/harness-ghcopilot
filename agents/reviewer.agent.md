@@ -2,7 +2,7 @@
 name: Reviewer
 description: 코드 보안·품질·성능 리뷰 전문 에이전트. 읽기 전용으로 분석하여 구체적인 개선 사항을 제시한다.
 tools: [read, search, web, 'context7/*']
-model: Claude Sonnet 4.6 (copilot)
+model: [Claude Opus 4.7 (copilot), GPT-5.5 (copilot), Claude Sonnet 4.6 (copilot)]
 handoffs:
   - label: Fix - 수정 사항 구현
     agent: Implementer

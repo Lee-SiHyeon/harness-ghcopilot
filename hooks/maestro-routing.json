@@ -22,6 +22,12 @@
         "command": "node .github/hooks/scripts/subagent-stop-logger.js",
         "windows": "node .github/hooks/scripts/subagent-stop-logger.js",
         "timeout": 3
+      },
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/retrospective-trigger.js",
+        "windows": "node .github/hooks/scripts/retrospective-trigger.js",
+        "timeout": 3
       }
     ],
     "PostToolUse": [

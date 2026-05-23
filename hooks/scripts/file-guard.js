@@ -149,6 +149,12 @@ try {
       askItems.push(`⚠️ 워크스페이스 외부: ${relPath}`);
       continue;
     }
+    // Maestro 직접 구현 차단 (subagent 컨텍스트가 아닌 경우)
+    if (isMaestroAgent(agentName) && !subagentName) {
+      askItems.push(`🎼 Maestro 직접 구현 차단: Implementer에게 위임이 필요합니다 (${relPath})`);
+      tryAudit({ event: 'file_guard', decision: 'ask', tool: toolName, agent: agentName, reason: 'maestro_direct_impl', path: relPath });
+      continue;
+    }
     if (isMaestroAgentPath(p)) {
       if (isMaestroAgent(agentName) && !hasAgentIdentityConflict()) {
         askItems.push(`🎼 Maestro 자기수정 확인 필요: ${relPath}`);
