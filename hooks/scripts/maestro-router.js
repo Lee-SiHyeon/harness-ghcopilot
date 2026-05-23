@@ -282,7 +282,7 @@ Field rules:
 - For intent=fix: pipeline MUST start with Investigator: ["Investigator","Implementer","Tester","Reviewer"]
 - For intent=investigate: pipeline is ["Investigator"] only
 - If user observes something is MISSING or NOT CONNECTED in the project (e.g., "왜 X가 없지", "X가 빠져있어", "X가 누락됐어") → intent="fix" NOT "investigate"
-- For intent=release: pipeline is ["Release","Critic"] only (do NOT add Release at end)
+- For intent=release: pipeline MUST be exactly ["Release","Critic"] — Release at index 0, Critic last, nothing appended after
 - For all other intents: pipeline MUST end with "Critic","Release" in that order
 - needs_todo: true if complexity >= 3
 - reason: one Korean sentence explaining the classification
