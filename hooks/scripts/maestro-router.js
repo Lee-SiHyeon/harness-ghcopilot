@@ -51,8 +51,10 @@ const API_BASE  = process.env.OPENCODE_API_BASE  || 'https://opencode.ai/zen/go/
 function sanitizeForPrompt(value, maxLen = 200) {
   if (!value || typeof value !== 'string') return '';
   return value
-    .replace(/[\r\n\t]+/g, ' ')   // 줄바꿼/탭 → 공백 (role spoofing 방지)
-    .replace(/[`\[\]]/g, '')       // backticks/brackets 제거
+    .replace(/[\r\n\t]+/g, ' ')                          // 줄바꿈/탭 → 공백 (role spoofing 방지)
+    .replace(/[`\[\]]/g, '')                             // backticks/brackets 제거
+    .replace(/(system|user|assistant|human)\s*:/gi, '') // role-delimiter 제거
+    .replace(/<\|[^|]+\|>/g, '')                        // special token 제거
     .trim()
     .slice(0, maxLen);
 }
@@ -174,10 +176,10 @@ if (agentName === 'Maestro') {
       if (!patternBlock && improvements.length === 0) return null;
 
       let block = '\n## [📚 과거 회고 패턴 — 이번 작업 시 유의]\n';
-      if (patternBlock) block += '\n' + patternBlock + '\n';
+      if (patternBlock) block += '\n' + sanitizeForPrompt(patternBlock, 500) + '\n';
       if (improvements.length > 0) {
         block += '\n### 최근 개선 사항\n';
-        improvements.forEach(imp => { block += `- ${imp}\n`; });
+        improvements.forEach(imp => { block += `- ${sanitizeForPrompt(imp, 150)}\n`; });
       }
       return block;
     } catch { return null; }
@@ -200,6 +202,17 @@ if (agentName === 'Maestro') {
       });
       lines.push('', '> 이 항목들을 fix 파이프라인으로 처리하거나 사용자에게 확인 후 진행한다.');
       lines.push('> 처리 완료 후 retrospective-draft.json의 actionItems를 빈 배열([])로 초기화한다.');
+
+      // retroImprovement 소스 항목이 있으면 자기개선 루프 트리거 지시 추가
+      const hasRetroImprovement = items.some(i => i.source === 'retroImprovement');
+      if (hasRetroImprovement) {
+        lines.push('');
+        lines.push('## [🔄 자기개선 루프 트리거]');
+        lines.push('회고 "다음 번 개선" 항목이 actionItem으로 변환되었습니다.');
+        lines.push('Scout → Planner → Implementer → Tester → Reviewer → Critic → Release 파이프라인으로 처리하세요.');
+        lines.push('처리 완료 후 반드시 retrospective-draft.json의 actionItems를 빈 배열([])로 초기화하세요.');
+      }
+
       return lines.join('\n');
     } catch { return null; }
   }

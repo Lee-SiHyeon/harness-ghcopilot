@@ -1051,4 +1051,100 @@ tc('tc-113', 'file-guard / Maestro logs allow', 'AGENT_NAME=Maestro + .github/lo
   if (result.decision === 'deny') throw new Error(`Expected allow for .github/logs/ path, got deny: ${JSON.stringify(result)}`);
 });
 
+// ════════════════════════════════════════════════════════════════
+// GROUP: retro-improvement-parser
+// ════════════════════════════════════════════════════════════════
+tc('tc-114', 'retro-improvement-parser/syntax', 'retro-improvement-parser.js 파일 존재 확인', () => {
+  const parserPath = path.join(HOOKS, 'retro-improvement-parser.js');
+  if (!fs.existsSync(parserPath)) throw new Error(`파일 없음: ${parserPath}`);
+});
+
+tc('tc-115', 'retro-improvement-parser/addItem', 'TOOL_NAME=edit_file + retrospective-history.md → actionItems에 "다음 번 개선" 항목 추가됨', () => {
+  const parserPath = path.join(HOOKS, 'retro-improvement-parser.js');
+  const tmpDir = path.join(require('os').tmpdir(), 'retro-test-115-' + Date.now());
+  const logsDir = path.join(tmpDir, '.github', 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
+
+  const retroContent = '## 세션 2024-01-01\n**다음 번 개선**: API 응답 캐싱 추가\n';
+  fs.writeFileSync(path.join(logsDir, 'retrospective-history.md'), retroContent, 'utf8');
+
+  const env = {
+    ...process.env,
+    TOOL_NAME: 'edit_file',
+    TOOL_INPUT: JSON.stringify({ filePath: '/some/path/retrospective-history.md' }),
+  };
+
+  try {
+    execSync(`node "${parserPath}"`, { env, cwd: tmpDir, stdio: 'pipe' });
+    const draftPath = path.join(logsDir, 'retrospective-draft.json');
+    if (!fs.existsSync(draftPath)) throw new Error('retrospective-draft.json 생성 안됨');
+    const draft = JSON.parse(fs.readFileSync(draftPath, 'utf8'));
+    const item = (draft.actionItems || []).find(i => i.source === 'retroImprovement' && i.message === 'API 응답 캐싱 추가');
+    if (!item) throw new Error(`actionItems에 "API 응답 캐싱 추가" 없음: ${JSON.stringify(draft)}`);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+tc('tc-116', 'retro-improvement-parser/placeholder-filter', 'placeholder("(Maestro 기입 필요)") 라인 → actionItems에 추가 안됨', () => {
+  const parserPath = path.join(HOOKS, 'retro-improvement-parser.js');
+  const tmpDir = path.join(require('os').tmpdir(), 'retro-test-116-' + Date.now());
+  const logsDir = path.join(tmpDir, '.github', 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
+
+  const retroContent = '## 세션 2024-01-01\n**다음 번 개선**: (Maestro 기입 필요)\n';
+  fs.writeFileSync(path.join(logsDir, 'retrospective-history.md'), retroContent, 'utf8');
+
+  const env = {
+    ...process.env,
+    TOOL_NAME: 'edit_file',
+    TOOL_INPUT: JSON.stringify({ filePath: 'retrospective-history.md' }),
+  };
+
+  try {
+    execSync(`node "${parserPath}"`, { env, cwd: tmpDir, stdio: 'pipe' });
+    const draftPath = path.join(logsDir, 'retrospective-draft.json');
+    if (fs.existsSync(draftPath)) {
+      const draft = JSON.parse(fs.readFileSync(draftPath, 'utf8'));
+      const items = (draft.actionItems || []).filter(i => i.source === 'retroImprovement');
+      if (items.length > 0) throw new Error(`placeholder 포함 항목이 추가됨: ${JSON.stringify(items)}`);
+    }
+    // draft 없으면 OK (placeholder만 있어서 아무것도 추가 안됨)
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+tc('tc-117', 'retro-improvement-parser/dedup', '동일 message 중복 추가 안됨 (dedup 검증)', () => {
+  const parserPath = path.join(HOOKS, 'retro-improvement-parser.js');
+  const tmpDir = path.join(require('os').tmpdir(), 'retro-test-117-' + Date.now());
+  const logsDir = path.join(tmpDir, '.github', 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
+
+  const retroContent = '**다음 번 개선**: 에러 로그 개선\n';
+  fs.writeFileSync(path.join(logsDir, 'retrospective-history.md'), retroContent, 'utf8');
+
+  // 이미 같은 항목이 있는 draft 준비
+  const existingDraft = {
+    actionItems: [{ source: 'retroImprovement', message: '에러 로그 개선', ts: '2024-01-01T00:00:00.000Z' }],
+  };
+  const draftPath = path.join(logsDir, 'retrospective-draft.json');
+  fs.writeFileSync(draftPath, JSON.stringify(existingDraft, null, 2), 'utf8');
+
+  const env = {
+    ...process.env,
+    TOOL_NAME: 'write_file',
+    TOOL_INPUT: JSON.stringify({ filePath: 'retrospective-history.md' }),
+  };
+
+  try {
+    execSync(`node "${parserPath}"`, { env, cwd: tmpDir, stdio: 'pipe' });
+    const draft = JSON.parse(fs.readFileSync(draftPath, 'utf8'));
+    const dupes = (draft.actionItems || []).filter(i => i.source === 'retroImprovement' && i.message === '에러 로그 개선');
+    if (dupes.length !== 1) throw new Error(`dedup 실패: 같은 message가 ${dupes.length}번 존재 (기대: 1)`);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 run();

@@ -48,6 +48,12 @@
         "command": "node .github/hooks/scripts/model-unavailability-tracker.js",
         "windows": "node .github/hooks/scripts/model-unavailability-tracker.js",
         "timeout": 2
+      },
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/retro-improvement-parser.js",
+        "windows": "node .github/hooks/scripts/retro-improvement-parser.js",
+        "timeout": 3
       }
     ],
     "PreCompact": [

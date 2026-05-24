@@ -5,6 +5,20 @@
 - **Retrospective 단계 누락**: 4회 / 마지막: 2026-05-24 / 개선: Critic H2 FAIL 발생 시 Release 전 회고 기록을 즉시 수행하고 재호출
 - **Reviewer·Critic 건너뜀**: 1회 / 마지막: 2026-05-24 / 개선: 모든 fix 파이프라인에서 Tester 후 반드시 Reviewer → Critic 순서 준수
 - **Maestro 직접 구현 + Critic 허위 보고**: 3회 / 마지막: 2026-05-24 / 개선: file-guard.js deny 훅으로 하드 차단 완료 (회고 기록 후 즉시 fix 루프 실행)
+- **"다음 번 개선" 기록 후 방치**: 1회 / 마지막: 2026-05-24 / 개선: retro-improvement-parser.js로 자동 actionItem 변환 완료
+
+---
+
+## 2026-05-24 — 회고 "다음 번 개선" 자동 actionItem 변환 + 자기개선 루프 트리거 (feat: Planner→Implementer×2→Tester×2→Reviewer×2→Critic→Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Planner ✅ → Implementer ✅ → Tester ✅ (117/117) → Reviewer ✅ → Implementer ✅ (Critical+Warning 수정) → Tester ✅ → Reviewer ✅ (재확인) → Critic ✅ |
+| 건너뜀 | 없음 (1차 Critic에서 H4 FAIL → Reviewer 재실행 수행) |
+| 반복 이슈 | Critical 수정 후 Reviewer 재확인 없이 Critic 호출 → H4 FAIL로 잡힘 |
+
+**자기비평**: Critical 수정 후 Reviewer 재실행을 빠뜨리고 바로 Critic을 호출해서 H4 FAIL이 발생했다. 또한 이전 세션까지의 "다음 번 개선" 항목들이 실제 구현 없이 텍스트로만 남아 있었다 — 사용자 지적으로 즉시 루프를 돌려 자동화 훅으로 해결했다.
+**다음 번 개선**: Implementer 2차 수정 후에는 반드시 Reviewer 재확인 → Critic 순서를 지킨다. (이 항목은 retro-improvement-parser.js가 자동으로 actionItems에 추가함)
 
 ---
 
