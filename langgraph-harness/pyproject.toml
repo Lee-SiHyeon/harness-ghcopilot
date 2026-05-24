@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=71", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "langgraph-harness"
+version = "0.1.0"
+description = "LangGraph-based harness for .github multi-agent pipelines"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+full = [
+    "langgraph>=0.3,<1.0",
+    "langchain-core>=0.3,<1.0",
+    "langchain-mcp-adapters>=0.1,<1.0",
+    "pyyaml>=6.0",
+]
+test = [
+    "pytest>=7",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.ruff]
+line-length = 88

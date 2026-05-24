@@ -1,0 +1,8 @@
+# Core optional dependencies
+# Install with: pip install -r requirements.txt
+# All deps are optional; harness degrades gracefully when absent.
+
+# langgraph>=0.3,<1.0
+# langchain-core>=0.3,<1.0
+# langchain-mcp-adapters>=0.1,<1.0
+# pyyaml>=6.0

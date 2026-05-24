@@ -371,3 +371,15 @@
 
 **자기비평**: state-lib의 isEvidenceValid()가 `status` 필드만 체크하는데, 기존 hook이 `result`로 기록함을 사전에 확인하지 않아 Reviewer 단계에서야 발견됐다. 계획 단계에서 필드 스키마 일치 여부를 명시적으로 검토해야 했다.
 **다음 번 개선**: 기존 데이터 구조와 신규 state-lib 스키마 사이 필드명 매핑 테이블을 Planner 단계에서 먼저 작성한다. 또한 MCP SDK 등 외부 라이브러리 API 코드 작성이 포함된 Implementer 호출 시, Planner 체크리스트 1번 항목으로 "Context7 resolve-library-id + query-docs 선행 호출"을 명시한다.
+
+
+## 2026-05-25 — LangGraph 하네스 전환 구현 (feat: Context7->Planner->Implementer x2->Tester x2->Reviewer x2->Critic->Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Context7 Docs Agent ✅ → Planner ✅ → Implementer #1(langgraph-harness 생성) ✅ → Tester #1(Python 60 OK/1 skip, JS 169/169) ✅ → Reviewer #1(Critical 3건 발견) ✅ → Implementer #2(path traversal/fan-out/PASS regex 수정) ✅ → Tester #2(Python 69 OK/1 skip, JS 169/169) ✅ → Reviewer #2(LGTM) ✅ → Critic ✅ |
+| 건너뜀 | 없음 |
+| 반복 이슈 | subagent-flow.jsonl에 현재 세션의 agentName/sessionId 검증 가능한 기록이 없어 H1 자동 검증이 불가능했다. 이는 기존 Bedrock tool_use_id/agentName null 구조적 한계와 같은 계열이며, 이번에는 수동 실행 근거(독립 Tester 결과: Python 69 OK/1 skip, JS 169/169 PASS)로 보완했다. |
+
+**자기비평**: 첫 구현에서 prompts/agent/file guard 로더의 경로 containment 검사를 충분히 강제하지 않아 Reviewer 단계에서 path traversal Critical 3건이 발견됐다. 또한 LangGraph가 미설치라 builder 통합 테스트가 skip되어 fan-out 라우팅 위험을 초기 테스트에서 잡지 못했다.
+**다음 번 개선**: 경로를 입력으로 받는 모든 신규 Python 로더/가드는 `Path.resolve()` + `relative_to(base)` containment 테스트를 먼저 작성한 뒤 구현한다. LangGraph 관련 변경에서는 optional dependency가 미설치여도 라우팅 구조를 정적으로 검사하는 테스트를 추가해 builder fan-out을 조기에 탐지한다.
