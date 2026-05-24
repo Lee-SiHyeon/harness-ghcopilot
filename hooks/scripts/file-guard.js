@@ -71,9 +71,12 @@ try {
   }
 
   // 보호 패턴 ─────────────────────────────────────────────────────
-  function isHooksPath(p) {
+  function isProtectedGithubPath(p) {
     const rel = p.slice(cwdNorm.length + 1);
-    return rel.startsWith('.github/hooks/');
+    return rel.startsWith('.github/hooks/')
+        || rel.startsWith('.github/agents/')
+        || rel.startsWith('.github/workflows/')
+        || rel.startsWith('.github/skills/');
   }
 
   function isMaestroAgentPath(p) {
@@ -181,8 +184,8 @@ try {
       }
       continue;
     }
-    if (isHooksPath(p)) {
-      askItems.push(`🛡️ 훅 자기수정 보호 (.github/hooks/): ${relPath}`);
+    if (isProtectedGithubPath(p)) {
+      askItems.push(`🛡️ 보호 경로 수정 감지 (.github/hooks|agents|workflows|skills): ${relPath}`);
       continue;
     }
     if (isSensitivePath(p)) {

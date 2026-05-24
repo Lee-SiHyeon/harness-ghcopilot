@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "_comment": "Maestro 파이프라인 정의 단일 출처 (SSOT). maestro.agent.md 1단계 분류 표와 동기화.",
+  "_version": "1.0.0",
+  "_updatedAt": "2026-05-24",
+  "pipelines": [
+    { "id": "A", "label": "신규 기능 구현", "keywords": ["만들어", "추가해", "구현해"], "steps": ["Planner", "Implementer", "Reviewer", "Critic", "Release"] },
+    { "id": "B", "label": "버그 수정", "keywords": ["오류", "에러", "안 돼", "고쳐", "수정해", "왜", "디버그"], "steps": ["Investigator", "Implementer", "Reviewer", "Critic", "Release"] },
+    { "id": "C", "label": "리팩토링", "keywords": ["개선해", "최적화", "정리해", "구조 바꿔"], "steps": ["Planner", "Implementer", "Reviewer", "Critic", "Release"] },
+    { "id": "D", "label": "문서화", "keywords": ["문서화", "정리해줘", "설명해줘", "레퍼런스"], "steps": ["Context7", "Documenter", "Critic", "Release"] },
+    { "id": "E", "label": "코드 리뷰", "keywords": ["리뷰해", "확인해", "검토해", "보안"], "steps": ["Reviewer", "Critic", "Release"] },
+    { "id": "F", "label": "라이브러리 질문", "keywords": [], "steps": ["Context7 Docs Agent", "Critic", "Release"] },
+    { "id": "G", "label": "계획만 필요", "keywords": ["계획", "설계", "어떻게", "방법"], "steps": ["Planner", "Critic", "Release"] },
+    { "id": "H", "label": "릴리즈/배포", "keywords": ["릴리즈", "배포해", "버전 올려", "publish", "deploy", "tag"], "steps": ["Release", "Critic"] },
+    { "id": "I", "label": "자기개선 탐색", "keywords": ["자기개선", "트렌드", "최신 패턴", "awesome-harness-engineering", "GitHub stars", "Scout"], "steps": ["Scout", "Critic", "Release"] },
+    { "id": "J", "label": "Scout 자기교정 루프", "keywords": ["Scout Ralph Loop", "scout loop", "자기개선 루프"], "steps": ["Scout", "Planner", "Implementer", "Tester", "Reviewer", "Critic", "Release"] }
+  ],
+  "defaultPipeline": "A",
+  "maxReviewerRetries": 3,
+  "maxTesterRetries": 3
+}

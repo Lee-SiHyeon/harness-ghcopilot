@@ -1,4 +1,6 @@
 logs/
+logs/retrospective-history.md
+logs/retrospective-draft.json
 *.log
 *.tmp
 *.bak

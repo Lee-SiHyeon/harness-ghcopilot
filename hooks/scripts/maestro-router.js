@@ -30,9 +30,18 @@ function loadEnv() {
   if (!fs.existsSync(envPath)) return;
   const lines = fs.readFileSync(envPath, 'utf8').split('\n');
   for (const line of lines) {
-    const m = line.match(/^\s*([\w_]+)\s*=\s*(.*)$/);
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const m = trimmed.match(/^(?:export\s+)?([\w_]+)\s*=(.*)$/);
     if (m && !process.env[m[1]]) {
-      process.env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
+      let val = m[2].trim();
+      if ((val.startsWith('"') && val.endsWith('"')) ||
+          (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      } else {
+        val = val.replace(/\s+#.*$/, '').trim();
+      }
+      process.env[m[1]] = val;
     }
   }
 }
@@ -47,16 +56,23 @@ const prompt    = raw.trim();
 const agentName = (process.env.AGENT_NAME || '').trim();
 const API_KEY   = process.env.OPENCODE_API_KEY  || '';
 const API_BASE  = process.env.OPENCODE_API_BASE  || 'https://opencode.ai/zen/go/v1';
+// allow-list 기반: 허용된 유니코드 범주만 통과 (Node.js ≥ 12 필요)
+const ALLOWED_CHARS_RE = /[^\p{L}\p{N}\p{Z}\p{P}\p{S}\r\n]/gu;
 // ── 프롬프트 인젝션 방지 sanitize ────────────────────────────
 function sanitizeForPrompt(value, maxLen = 200) {
   if (!value || typeof value !== 'string') return '';
   return value
-    .replace(/[\r\n\t]+/g, ' ')                          // 줄바꿈/탭 → 공백 (role spoofing 방지)
-    .replace(/[`\[\]]/g, '')                             // backticks/brackets 제거
-    .replace(/(system|user|assistant|human)\s*:/gi, '') // role-delimiter 제거
-    .replace(/<\|[^|]+\|>/g, '')                        // special token 제거
+    .replace(ALLOWED_CHARS_RE, '')           // allow-list: 비허용 문자 제거
+    .replace(/[\r\n\t]+/g, ' ')             // 줄바꿈 → 공백
+    .replace(/(system|user|assistant|human)\s*:/gi, '[ROLE]') // role delimiter 치환
+    .replace(/<\|[^|]+\|>/g, '')            // special token 제거
     .trim()
     .slice(0, maxLen);
+}
+// 외부(신뢰 불가) 텍스트를 untrusted 펜스로 격리
+function wrapUntrusted(label, content) {
+  if (!content) return '';
+  return `\`\`\`untrusted-${label}\n${content}\n\`\`\``;
 }
 // ── 저장된 todo 상태 읽기 (컨텍스트 압축 생존 보장) ─────────────
 function loadSavedTodos() {
@@ -134,7 +150,7 @@ function formatResumeBlock(state) {
   }
   if (state.gitStatus.length) {
     lines.push('### Git 변경');
-    for (const g of state.gitStatus) lines.push(`  ${sanitizeForPrompt(g, 120)}`);
+    lines.push(wrapUntrusted('git-status', state.gitStatus.map(g => sanitizeForPrompt(g, 120)).join('\n')));
   }
   if (state.recentErrors.length) {
     lines.push('### 최근 오류');
@@ -176,7 +192,7 @@ if (agentName === 'Maestro') {
       if (!patternBlock && improvements.length === 0) return null;
 
       let block = '\n## [📚 과거 회고 패턴 — 이번 작업 시 유의]\n';
-      if (patternBlock) block += '\n' + sanitizeForPrompt(patternBlock, 500) + '\n';
+      if (patternBlock) block += '\n' + wrapUntrusted('retro', sanitizeForPrompt(patternBlock, 500)) + '\n';
       if (improvements.length > 0) {
         block += '\n### 최근 개선 사항\n';
         improvements.forEach(imp => { block += `- ${sanitizeForPrompt(imp, 150)}\n`; });

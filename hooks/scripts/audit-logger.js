@@ -34,7 +34,7 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
 //         PEM blocks, URL embedded credentials.
 // 사용: str.replace(new RegExp(SENSITIVE_RE.source, SENSITIVE_RE.flags), '[REDACTED]')
 //       또는 redact(str) 헬퍼 사용.
-const SENSITIVE_RE = /(?:authorization\s*:[^\n\r]*|bearer\s+\S+|(?:token|api[_-]?key|apikey|password|secret|opencode_api_key)\s*[=:]\s*\S+|https?:\/\/[^:@\s]+:[^@\s]+@\S+|-----BEGIN\s[A-Z ]+-----[\s\S]*?-----END\s[A-Z ]+-----)/gi;
+const SENSITIVE_RE = /(?:authorization\s*:[^\n\r]*|bearer\s+\S+|basic\s+[A-Za-z0-9+/=]{8,}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|(?:token|api[_-]?key|apikey|password|secret|opencode_api_key)\s*[=:]\s*\S+|https?:\/\/[^:@\s]+:[^@\s]+@\S+|-----BEGIN\s[A-Z ]+-----[\s\S]*?-----END\s[A-Z ]+-----)/gi;
 
 // ── normalizePath ─────────────────────────────────────────────────
 function normalizePath(p) {
