@@ -272,18 +272,19 @@ Required JSON schema (fill in values based on the user request):
 {"intent":"implement","complexity":5,"scope":"single","security":[],"stacks":[],"task_count":1,"pipeline":["Planner","Implementer","Tester","Reviewer"],"needs_todo":true,"reason":"Korean 1-sentence reason"}
 
 Field rules:
-- intent: "implement"(new code) | "fix"(bug) | "investigate"(root cause analysis, debugging) | "review"(audit) | "document"(docs) | "plan"(design only) | "question"(explain) | "query"(simple lookup) | "release"(version bump, publish, deploy)
+- intent: "implement"(new code) | "fix"(bug) | "investigate"(root cause analysis, debugging) | "review"(audit) | "document"(docs) | "plan"(design only) | "question"(explain) | "query"(simple lookup) | "release"(version bump, publish, deploy) | "scout"(research trends, self-improvement discovery)
 - complexity: 0-10 integer (simple=1-2, moderate=4-5, complex=7-8, architecture=9-10)
 - scope: "single"(one file) | "multi"(several files) | "architecture"(whole project)
 - security: subset of ["auth","password","api-key","session","db-query","env-vars","crypto","vuln-pattern"]
 - stacks: detected frameworks e.g. ["Next.js","Prisma","Supabase"]
 - task_count: number of distinct subtasks (1-10)
-- pipeline: ordered agent list from ["Context7 Docs Agent","Planner","Implementer","Tester","Reviewer","Documenter","Investigator","Release","Critic"]
+- pipeline: ordered agent list from ["Context7 Docs Agent","Planner","Implementer","Tester","Reviewer","Documenter","Investigator","Release","Critic","Scout"]
 - For intent=implement: pipeline MUST include Tester: ["Planner","Implementer","Tester","Reviewer"]
 - For intent=fix: pipeline MUST start with Investigator and include Tester: ["Investigator","Implementer","Tester","Reviewer"]
 - For intent=investigate: pipeline is ["Investigator"] only
 - If user observes something is MISSING or NOT CONNECTED in the project (e.g., "왜 X가 없지", "X가 빠져있어", "X가 누락됐어") → intent="fix" NOT "investigate"
 - For intent=release: pipeline MUST be exactly ["Release","Critic"] — Release at index 0, Critic last, nothing appended after
+- For intent=scout: pipeline MUST be exactly ["Scout","Critic","Release"]
 - For all other intents: pipeline MUST end with "Critic","Release" in that order
 - needs_todo: true if complexity >= 3
 - reason: one Korean sentence explaining the classification
@@ -358,8 +359,10 @@ async function classifyWithLLM(userPrompt) {
 // ══════════════════════════════════════════════════════════════════
 function classifyWithRegex(p) {
   let intent = 'query';
+  // scout는 question보다 먼저 평가 — 자기개선/트렌드 조사 우선
+  if (/자기개선|트렌드|최신.*패턴|awesome.*harness.*engineering|github.*stars?|scout/i.test(p)) intent = 'scout';
   // review/audit는 question보다 먼저 평가 — review+question 혼합 프롬프트는 review로 처리
-  if (/리뷰|검토|확인해|review|audit/i.test(p))                               intent = 'review';
+  else if (/리뷰|검토|확인해|review|audit/i.test(p))                               intent = 'review';
   // discovery 패턴: ?$ 보다 먼저 체크 ("없는 것 같지?" 등 포함)
   else if (/없[는것지](\s*것)?\s*같[지다아]?|빠져\s*있|누락\s*됐|안\s*연결|not.*wired|missing.*pipeline|missing.*agent/i.test(p)) intent = 'fix';
   // investigate 강력 패턴: "왜+오류/버그/안 되" 조합 → ?$ 보다 먼저 체크
@@ -407,6 +410,7 @@ function classifyWithRegex(p) {
     investigate: ['Investigator','Critic','Release'],
     implement: ['Planner','Implementer','Tester','Reviewer','Critic','Release'],
     release: ['Release','Critic'],
+    scout: ['Scout','Critic','Release'],
   };
 
   return {
@@ -458,7 +462,7 @@ function buildOutput(analysis, usedLLM) {
   }
 
   // ── 시간예산 추정 ──────────────────────────────────────────────
-  const timePerAgent = { Planner: 1, Investigator: 2, Implementer: 2, Tester: 2, Reviewer: 1, Documenter: 2, 'Context7 Docs Agent': 1, Release: 3, Critic: 1 };
+  const timePerAgent = { Planner: 1, Investigator: 2, Implementer: 2, Tester: 2, Reviewer: 1, Documenter: 2, 'Context7 Docs Agent': 1, Release: 3, Critic: 1, Scout: 4 };
   const estMinutes = pipeline.reduce((sum, a) => sum + (timePerAgent[a] || 1), 0) * task_count;
   const timeBudget = `⏱ 예상 소요: ~${estMinutes}분 (에이전트 ${pipeline.length}개 × 작업 ~${task_count}개)`;
 

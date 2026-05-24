@@ -732,5 +732,80 @@ tc('tc-078', 'maestro-router.js / implement-tester-rule', 'SYSTEM_PROMPT에 impl
   if (!src.includes('intent=implement') || !src.includes('Tester')) throw new Error('SYSTEM_PROMPT에 implement Tester 필수 규칙 없음');
 });
 
+// ── tc-079~084: Scout agent 추가 ────────────────────────────────
+
+tc('tc-079', 'scout.agent.md / exists', 'scout.agent.md 파일 존재', () => {
+  const p = path.join(AGENTS, 'scout.agent.md');
+  if (!fs.existsSync(p)) throw new Error('scout.agent.md 파일이 없음');
+});
+
+tc('tc-080', 'scout.agent.md / description', 'description에 trigger phrase 포함 (자기개선, 트렌드, Scout)', () => {
+  const src = readAgent('scout.agent.md');
+  // description 프론트매터 추출 (---로 시작하는 YAML 블록)
+  const match = src.match(/---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) throw new Error('YAML 프론트매터가 없음');
+  const yaml = match[1];
+  // description 필드만 추출하여 정확한 검증
+  const descMatch = yaml.match(/description:\s*>([\s\S]*?)(?=\r?\n\w+:|$)/);
+  if (!descMatch) throw new Error('description 필드를 찾을 수 없음');
+  const desc = descMatch[1];
+  if (!/Scout/.test(desc)) {
+    throw new Error('description 필드에 "Scout" 키워드가 명시적으로 없음');
+  }
+  if (!/자기개선|트렌드/.test(desc)) {
+    throw new Error('description 필드에 "자기개선" 또는 "트렌드" 키워드가 없음');
+  }
+});
+
+tc('tc-081', 'maestro-router / scout-regex', '"자기개선 포인트 찾아줘" → intent=scout', () => {
+  const r = getClassify()('자기개선 포인트 찾아줘');
+  if (r.intent !== 'scout') throw new Error(`기대: scout, 실제: ${r.intent}`);
+});
+
+tc('tc-082', 'maestro-router / scout-pipeline', 'scout → [Scout, Critic, Release]', () => {
+  const r = getClassify()('자기개선 포인트 찾아줘');
+  const expected = ['Scout', 'Critic', 'Release'];
+  const actual   = r.pipeline;
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`기대: ${JSON.stringify(expected)}, 실제: ${JSON.stringify(actual)}`);
+  }
+});
+
+tc('tc-083', 'maestro-router / SYSTEM_PROMPT-scout', 'SYSTEM_PROMPT에 scout intent pipeline 규칙 포함', () => {
+  const src = readSrc('maestro-router.js');
+  const promptMatch = src.match(/const SYSTEM_PROMPT\s*=\s*`([\s\S]*?)`/);
+  if (!promptMatch) throw new Error('SYSTEM_PROMPT 상수를 찾을 수 없음');
+  const prompt = promptMatch[1];
+  if (!/scout/i.test(prompt)) {
+    throw new Error('SYSTEM_PROMPT에 "scout" intent가 없음');
+  }
+  // scout intent의 정확한 pipeline 강제 규칙 검증
+  if (!/intent=scout.*pipeline MUST be exactly \["Scout","Critic","Release"\]/i.test(prompt)) {
+    throw new Error('SYSTEM_PROMPT에 scout pipeline 강제 규칙이 없거나 잘못됨');
+  }
+});
+
+tc('tc-084', 'maestro-router / timePerAgent-scout', 'timePerAgent에 Scout >= 4 포함', () => {
+  const src = readSrc('maestro-router.js');
+  const match = src.match(/Scout:\s*(\d+)/);
+  if (!match) throw new Error('timePerAgent에 Scout 없음');
+  const scoutTime = parseInt(match[1], 10);
+  if (scoutTime < 4) throw new Error(`Scout 시간예산이 부족함: ${scoutTime} < 4`);
+});
+
+tc('tc-085', 'maestro.agent.md / agents-list', 'Maestro agents 목록에 Scout 포함', () => {
+  const src = readAgent('maestro.agent.md');
+  const match = src.match(/---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) throw new Error('YAML 프론트매터가 없음');
+  const yaml = match[1];
+  // agents 배열 추출
+  const agentsMatch = yaml.match(/agents:\s*\[([^\]]+)\]/);
+  if (!agentsMatch) throw new Error('agents 필드를 찾을 수 없음');
+  const agentsList = agentsMatch[1];
+  if (!/['"]Scout['"]/.test(agentsList)) {
+    throw new Error('Maestro agents 목록에 Scout가 없음');
+  }
+});
+
 run();
 
