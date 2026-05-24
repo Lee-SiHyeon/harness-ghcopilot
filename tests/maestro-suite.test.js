@@ -29,6 +29,8 @@ function runMaestroRouter(prompt, agentName = '', extraEnv = {}) {
     OPENCODE_API_KEY: '',
     OPENCODE_API_BASE: '',
     OPENCODE_HOOK_MODEL: 'test-model',
+    GITHUB_PAT: '',              // 단위 테스트에서 GitHub Models API 호출 방지
+    DISABLE_COPILOT_CLS: '1',   // 단위 테스트에서 Copilot CLI 호출 방지
     ...extraEnv,
   };
 

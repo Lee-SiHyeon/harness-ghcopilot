@@ -7,7 +7,7 @@ description: >
 
 argument-hint: '직전 파이프라인의 실행 내역, 파이프라인 선언, retrospective-history.md 최신 항목을 전달해줘.'
 
-model: [Claude Sonnet 4.6 (copilot)]
+model: [Claude Opus 4.7 (copilot), GPT-5.5 (copilot), Gemini 3.5 Flash (copilot), Claude Sonnet 4.6 (copilot)]
 
 tools: [read]
 

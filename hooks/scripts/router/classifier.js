@@ -1,8 +1,25 @@
 'use strict';
 
+const { spawnSync, spawn } = require('child_process');
+const path                  = require('path');
+
 // ── LLM 실패 이유 추적 (module-level) ────────────────────────────
 let _llmErrorReason = null;
 
+// ── 정규 파이프라인 맵 (classifyWithRegex / classifyWithCopilot 공유) ───
+const PIPELINE_MAP = {
+  question:   ['Context7 Docs Agent','Critic','Release'],
+  query:      ['Context7 Docs Agent','Critic','Release'],
+  document:   ['Context7 Docs Agent','Documenter','Critic','Release'],
+  review:     ['Reviewer','Critic','Release'],
+  plan:       ['Planner','Critic','Release'],
+  fix:        ['Investigator','Implementer','Tester','Reviewer','Critic','Release'],
+  investigate:['Investigator','Critic','Release'],
+  implement:  ['Planner','Implementer','Tester','Reviewer','Critic','Release'],
+  release:    ['Release','Critic'],
+  scout:      ['Scout','Critic','Release'],
+  scout_loop: ['Scout','Planner','Implementer','Tester','Reviewer','Critic','Release'],
+};
 const SCOUT_RALPH_PROTOCOL_BLOCK = [
   '## [Scout Ralph Loop Protocol]',
   'Step 1 Scout read-only 조사',
@@ -91,7 +108,7 @@ async function classifyWithLLM(userPrompt) {
     // JSON만 추출 (마크다운 펜스 제거)
     // JSON 블록 추출: 마크다운 펜스 제거 후 { ... } 추출
     const stripped = text.replace(/```json?\n?/g, '').replace(/```/g, '');
-    const match = stripped.match(/\{[\s\S]*\}/);
+    const match = stripped.match(/\{[\s\S]*?\}/);
     if (!match) {
       _llmErrorReason = 'json_no_match';
       throw new Error('No JSON found in response');
@@ -112,6 +129,67 @@ async function classifyWithLLM(userPrompt) {
       }
     }
     return null; // 폴백 트리거
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// GitHub Models API 분류기 (PAT 기반, 무료, ~2-3s)
+// ══════════════════════════════════════════════════════════════════
+async function classifyWithGitHubModels(userPrompt) {
+  _llmErrorReason = null;
+  const GH_PAT = process.env.GITHUB_PAT || '';
+  if (!GH_PAT) { _llmErrorReason = 'gh_pat_not_set'; return null; }
+  if (process.env.DISABLE_GH_MODELS_CLS === '1') return null;
+
+  const TIMEOUT = 8000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT);
+
+  try {
+    const res = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Authorization': `Bearer ${GH_PAT}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user',   content: userPrompt.slice(0, 2000) },
+        ],
+        temperature: 0,
+        max_tokens: 200,
+      }),
+    });
+
+    if (!res.ok) { _llmErrorReason = `gh_models_http:${res.status}`; return null; }
+    const data = await res.json();
+    const text = data.choices?.[0]?.message?.content || '';
+    const stripped = text.replace(/```json?\n?/g, '').replace(/```/g, '');
+    const start = stripped.indexOf('{');
+    const end   = stripped.lastIndexOf('}');
+    if (start === -1 || end === -1) { _llmErrorReason = 'gh_models_json_parse_error'; return null; }
+    const parsed = JSON.parse(stripped.slice(start, end + 1));
+    if (typeof parsed.complexity === 'number') {
+      parsed.complexity = Math.min(Math.max(parsed.complexity, 0), 10);
+    }
+    const VALID_INTENTS = new Set(Object.keys(PIPELINE_MAP));
+    if (!parsed.intent || !VALID_INTENTS.has(parsed.intent)) {
+      _llmErrorReason = 'gh_models_invalid_intent';
+      return null;
+    }
+    parsed.pipeline = PIPELINE_MAP[parsed.intent];
+    if (parsed.needs_todo === undefined) parsed.needs_todo = !['question', 'query'].includes(parsed.intent);
+    return parsed;
+  } catch (e) {
+    if (!_llmErrorReason) {
+      _llmErrorReason = controller.signal.aborted ? 'gh_models_timeout' : `gh_models_error:${String(e.message||'').slice(0,40)}`;
+    }
+    return null;
   } finally {
     clearTimeout(timer);
   }
@@ -168,7 +246,7 @@ function classifyWithRegex(p) {
     ['vue','Vue'],['docker','Docker']];
   for (const [re, name] of LIBS) if (new RegExp(re,'i').test(p)) stacks.push(name);
 
-  const PIPELINE_MAP = {
+  const PIPELINE_MAP_LOCAL = {
     question: ['Context7 Docs Agent','Critic','Release'], query: ['Context7 Docs Agent','Critic','Release'],
     document: ['Context7 Docs Agent','Documenter','Critic','Release'], review: ['Reviewer','Critic','Release'],
     plan: ['Planner','Critic','Release'],
@@ -183,16 +261,108 @@ function classifyWithRegex(p) {
   return {
     intent, complexity, scope, security, stacks,
     task_count: 1,
-    pipeline: PIPELINE_MAP[intent],
+    pipeline: PIPELINE_MAP_LOCAL[intent],
     needs_todo: !['question','query'].includes(intent),
     reason: `[regex폴백] ${intent} 작업 감지`,
   };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Copilot CLI 분류기 (free tier, gpt-5-mini, API 키 불필요)
+// async: spawn + Promise — JSON 수신 즉시 kill (이벤트 루프 블록 없음)
+// ══════════════════════════════════════════════════════════════════
+async function classifyWithCopilot(userPrompt) {
+  _llmErrorReason = null;
+
+  if (!process.env.APPDATA) return null;
+  if (process.env.DISABLE_COPILOT_CLS === '1') return null;
+
+  const COPILOT_BIN = path.join(
+    process.env.APPDATA, 'npm', 'node_modules', '@github', 'copilot', 'npm-loader.js'
+  );
+  if (!require('fs').existsSync(COPILOT_BIN)) {
+    _llmErrorReason = 'copilot_bin_not_found';
+    return null;
+  }
+
+  const MODEL   = process.env.COPILOT_HOOK_MODEL || 'gpt-5-mini';
+  const TIMEOUT = 40000;
+  const prompt  = SYSTEM_PROMPT + '\n\nUser request: ' + userPrompt.slice(0, 2000);
+
+  return new Promise(resolve => {
+    let stdout = '';
+    let settled = false;
+    function done(result) {
+      if (settled) return;
+      settled = true;
+      try { child.kill(); } catch (_) {}
+      clearTimeout(timer);
+      resolve(result);
+    }
+
+    const MAX_STDOUT = 32 * 1024; // 32KB guard
+    const child = spawn(
+      process.execPath,
+      [COPILOT_BIN, '-p', prompt, '--model', MODEL, '--autopilot', '--no-custom-instructions', '--silent'],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    const timer = setTimeout(() => {
+      _llmErrorReason = 'copilot_timeout';
+      done(null);
+    }, TIMEOUT);
+
+    child.stdout.on('data', chunk => {
+      stdout += chunk.toString('utf8');
+      if (stdout.length > MAX_STDOUT) { _llmErrorReason = 'copilot_stdout_overflow'; done(null); return; }
+      const match = stdout.match(/\{[\s\S]*?\}/);
+      if (!match) return;
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (typeof parsed.complexity === 'number') {
+          parsed.complexity = Math.min(Math.max(parsed.complexity, 0), 10);
+        }
+        if (parsed.intent && PIPELINE_MAP[parsed.intent]) {
+          parsed.pipeline = PIPELINE_MAP[parsed.intent];
+        }
+        if (parsed.needs_todo === undefined) {
+          parsed.needs_todo = !['question', 'query'].includes(parsed.intent);
+        }
+        done(parsed);
+      } catch (_) {
+        // JSON 불완전 — 데이터 더 기다림
+      }
+    });
+
+    child.on('error', () => {
+      _llmErrorReason = 'copilot_spawn_error';
+      done(null);
+    });
+
+    child.on('close', () => {
+      if (!settled) {
+        const match = stdout.match(/\{[\s\S]*?\}/);
+        if (match) {
+          try {
+            const parsed = JSON.parse(match[0]);
+            if (parsed.intent && PIPELINE_MAP[parsed.intent]) parsed.pipeline = PIPELINE_MAP[parsed.intent];
+            if (parsed.needs_todo === undefined) parsed.needs_todo = !['question','query'].includes(parsed.intent);
+            done(parsed); return;
+          } catch (_) {}
+        }
+        _llmErrorReason = 'copilot_no_json';
+        done(null);
+      }
+    });
+  });
 }
 
 function getLlmErrorReason() { return _llmErrorReason; }
 
 module.exports = {
   classifyWithLLM,
+  classifyWithCopilot,
+  classifyWithGitHubModels,
   classifyWithRegex,
   isScoutLoopPrompt,
   SCOUT_RALPH_PROTOCOL_BLOCK,

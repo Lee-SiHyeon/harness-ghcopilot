@@ -28,8 +28,8 @@ const path = require('path');
 const { loadEnv, sanitizeForPrompt, wrapUntrusted }              = require('./router/env-utils');
 const { loadSavedTodos, loadPrecompactState, formatResumeBlock } = require('./router/state-loaders');
 const { loadRetrospectiveLearnings, loadActionItems, loadActionItemsCount } = require('./router/retro-loaders');
-const { classifyWithLLM, classifyWithRegex, isScoutLoopPrompt,
-        SCOUT_RALPH_PROTOCOL_BLOCK, getLlmErrorReason }          = require('./router/classifier');
+const { classifyWithGitHubModels, classifyWithRegex,
+        isScoutLoopPrompt, SCOUT_RALPH_PROTOCOL_BLOCK, getLlmErrorReason } = require('./router/classifier');
 const { buildOutput }                                            = require('./router/output-builder');
 
 loadEnv();
@@ -42,9 +42,6 @@ const raw       = process.env.USER_PROMPT || '';
 const prompt    = raw.trim();
 const agentName = (process.env.AGENT_NAME || '').trim();
 const subagentName = (process.env.SUBAGENT_NAME || '').trim();
-const API_KEY   = process.env.OPENCODE_API_KEY  || '';
-const API_BASE  = process.env.OPENCODE_API_BASE  || 'https://opencode.ai/zen/go/v1';
-const MODEL     = process.env.OPENCODE_HOOK_MODEL || 'deepseek-v4-flash';
 
 if (!prompt) { out({ continue: true }); process.exit(0); }
 
@@ -84,7 +81,7 @@ if (isMaestroContext) {
   }
 
   const actionCount = loadActionItemsCount();
-  const analysis = classifyWithRegex(prompt);
+  const analysis = classifyWithRegex(prompt);  // sync path: regex만 사용 (속도 우선)
   const isScoutLoop = analysis.intent === 'scout_loop' || isScoutLoopPrompt(prompt);
   const disclosurePipeline = actionCount >= 1
     ? [`자가비평 ${actionCount}건 처리`, ...analysis.pipeline]
@@ -132,6 +129,22 @@ if (isMaestroContext) {
     }
   } catch (_) {}
   parts.push('', '## [원본 요청]', wrapUntrusted('user-request', prompt));
+
+  // GITHUB_PAT 미설정 시 토큰 안내 주입 (Maestro context)
+  if (!process.env.GITHUB_PAT) {
+    parts.push(
+      '',
+      '> ⚠️ **LLM 분류기 비활성 — Regex 모드로 전환되었습니다**',
+      '> GitHub Personal Access Token을 `.env`에 설정하면 gpt-4o-mini 기반 인텔리전트 분류를 사용할 수 있습니다:',
+      '> ```',
+      '> # .env 파일 (git 추적 안 됨)',
+      '> GITHUB_PAT=ghp_...',
+      '> ```',
+      '> 토큰 발급: https://github.com/settings/tokens',
+      '> Classic Token → ✅ **`read:models`** scope 체크 후 생성하세요.',
+    );
+  }
+
   const promptSummary = audit ? audit.summarize(prompt, 100) : prompt.slice(0, 100);
   tryAudit({ event: 'maestro_passthrough', source: 'UserPromptSubmit', agentName, intent: analysis.intent, pipeline: analysis.pipeline, complexity: analysis.complexity, promptSummary });
   out({ continue: true, modifiedParameters: { userMessage: parts.join('\n') } });
@@ -147,23 +160,39 @@ if (isMaestroContext) {
 
   const promptSummary = audit ? audit.summarize(prompt, 100) : prompt.slice(0, 100);
 
-  if (API_KEY) {
+  // 1좌: GitHub Models API (PAT 기반, 무료, ~2-3s)
+  {
     const t0 = Date.now();
-    analysis = await classifyWithLLM(prompt);
+    analysis = await classifyWithGitHubModels(prompt);
     const durationMs = Date.now() - t0;
     if (analysis) {
       usedLLM = true;
-      tryAudit({ event: 'llm_classify', source: 'UserPromptSubmit', status: 'success', durationMs, intent: analysis.intent, pipeline: analysis.pipeline, complexity: analysis.complexity, model: MODEL, agentName, promptSummary });
+      tryAudit({ event: 'gh_models_classify', source: 'UserPromptSubmit', status: 'success', durationMs, intent: analysis.intent, pipeline: analysis.pipeline, complexity: analysis.complexity, model: 'gpt-4o-mini', agentName, promptSummary });
     } else {
-      tryAudit({ event: 'llm_classify', source: 'UserPromptSubmit', status: 'failed', durationMs, errorReason: getLlmErrorReason(), model: MODEL, agentName, promptSummary });
+      tryAudit({ event: 'gh_models_classify', source: 'UserPromptSubmit', status: 'failed', durationMs, errorReason: getLlmErrorReason(), agentName, promptSummary });
     }
-  } else {
-    tryAudit({ event: 'llm_classify', source: 'UserPromptSubmit', status: 'skipped', reason: 'no_api_key', agentName, promptSummary });
   }
 
+  // 2좌: Regex fallback — PAT 없으면 사용자에게 알림 주입
   if (!analysis) {
     analysis = classifyWithRegex(prompt);
-    tryAudit({ event: 'regex_fallback', source: 'UserPromptSubmit', intent: analysis.intent, pipeline: analysis.pipeline, complexity: analysis.complexity, fallbackReason: getLlmErrorReason() || 'no_api_key', reason: analysis.reason, agentName, promptSummary });
+    tryAudit({ event: 'regex_fallback', source: 'UserPromptSubmit', intent: analysis.intent, pipeline: analysis.pipeline, complexity: analysis.complexity, fallbackReason: getLlmErrorReason() || 'no_pat', agentName, promptSummary });
+
+    // PAT 미설정인 경우에만 토큰 안내 주입
+    const errorReason = getLlmErrorReason();
+    if (!process.env.GITHUB_PAT || errorReason === 'gh_pat_not_set') {
+      analysis._regexFallbackNotice = [
+        '',
+        '> ⚠️ **LLM 분류기 비활성 — Regex 모드로 전환되었습니다**',
+        '> GitHub Personal Access Token을 `.env`에 설정하면 gpt-4o-mini 기반 인텔리전트 분류를 사용할 수 있습니다:',
+        '> ```',
+        '> # .env 파일 (git 추적 안 됨)',
+        '> GITHUB_PAT=ghp_...',
+        '> ```',
+        '> 토큰 발급: https://github.com/settings/tokens',
+        '> Classic Token → ✅ **`read:models`** scope 체크 후 생성하세요.',
+      ].join('\n');
+    }
   }
 
   // nah pattern: PreToolUse 가드가 읽을 수 있도록 현재 intent 저장
@@ -175,7 +204,13 @@ if (isMaestroContext) {
     fs.writeFileSync(intentFile, JSON.stringify({ intent: analysis.intent, userRequestedModel, ts: new Date().toISOString() }));
   } catch (_) {}
 
-  const result = buildOutput(analysis, usedLLM, { prompt, MODEL, audit, tryAudit });
+  const result = buildOutput(analysis, usedLLM, { prompt, MODEL: 'gpt-4o-mini', audit, tryAudit });
+
+  // regex 모드 알림을 modifiedParameters에 주입
+  if (analysis._regexFallbackNotice && result.modifiedParameters?.userMessage) {
+    result.modifiedParameters.userMessage += '\n' + analysis._regexFallbackNotice;
+  }
+
   tryAudit({ event: 'final_pipeline', source: 'UserPromptSubmit', pipeline: analysis.pipeline, intent: analysis.intent, complexity: analysis.complexity, usedLLM, agentName, promptSummary, hitl: result.decision === 'ask' });
 
   out(result);
@@ -184,4 +219,4 @@ if (isMaestroContext) {
 function out(obj) { process.stdout.write(JSON.stringify(obj)); }
 
 // 테스트 호환성을 위한 re-export
-module.exports = { classifyWithRegex, classifyWithLLM, sanitizeForPrompt, buildOutput };
+module.exports = { classifyWithRegex, sanitizeForPrompt, buildOutput };

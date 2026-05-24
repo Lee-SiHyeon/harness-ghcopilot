@@ -7,8 +7,20 @@
 - **Reviewer·Critic 건너뜀**: 1회 / 마지막: 2026-05-24 / 개선: 모든 fix 파이프라인에서 Tester 후 반드시 Reviewer → Critic 순서 준수
 - **Maestro 직접 구현 + Critic 허위 보고**: 3회 / 마지막: 2026-05-24 / 개선: file-guard.js deny 훅으로 하드 차단 완료 (회고 기록 후 즉시 fix 루프 실행)
 - **"다음 번 개선" 기록 후 방치**: 1회 / 마지막: 2026-05-24 / 개선: retro-improvement-parser.js로 자동 actionItem 변환 완료
-- **Warning 수정 후 Reviewer 2차 재확인 생략**: 1회 / 마지막: 2026-05-24 / 개선: Implementer 2차 이상 → Reviewer 재확인 필수 규칙 maestro.agent.md에 추가 완료 (2026-05-24)
-- **독립 작업 병렬 Implementer 미적용**: 2회 / 마지막: 2026-05-30 / 개선: 독립 작업 ≥2개 시 병렬 호출 필수 규칙 maestro.agent.md에 추가 완료 (2026-05-24)
+- **Warning 수정 후 Reviewer 2차 재확인 생략**: 1회 / 마지막: 2026-05-24 / 개선: Implementer 2차 이후 반드시 Reviewer 재확인 → 이번 세션에서 Tester PASS로 대체 (개선 필요)
+
+---
+
+## 2026-05-24 — GitHub Models 분류기 추가 (feat: Implementer->Reviewer->Implementer->Tester->Reviewer->Critic->Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Implementer -> Reviewer -> Implementer(Warning 2건) -> Tester(150/150) -> Reviewer(승인) -> Critic |
+| 건너뜀 | Planner(단순기능추가) |
+| 반복 이슈 | Warning수정후 Reviewer재확인생략 → Critic H4 FAIL |
+
+**자기비평**: Implementer 2차 호출 후 Reviewer재확인없이 Critic직행. 규칙위반. Critic이잡았다.
+**다음 번 개선**: Implementer 2차즉시 todo에 Reviewer재확인 항목 자동삽입.
 
 ---
 
@@ -256,16 +268,3 @@
 
 **자기비평**: Implementer를 항목별로 5회 순차 호출했는데 일부 독립 항목(HIGH-6+HIGH-3 등)은 병렬 호출 가능했다. Reviewer가 Warning 2건을 발견했지만 Critical 없이 승인까지 1-pass로 끝났다.
 **다음 번 개선**: 독립적인 파일 수정은 Implementer 병렬 호출로 시간 단축. 보안 패치는 항목별 TC를 새로 추가하여 명시적 회귀 커버리지 확보.
-
----
-
-## 2026-05-24 — Maestro 헤더 누락 훅 수정 (fix: Investigator→Implementer×3→Tester×3→Reviewer×3→Critic→Release)
-
-| 항목 | 내용 |
-|------|------|
-| 실행 | Investigator ✅ → Implementer ✅(헤더 주입+tc-141~144) → Tester ✅(146/146) → Reviewer ✅(Warning) → Implementer ✅(SUBAGENT_NAME+wrapUntrusted+tc-145~146) → Tester ✅(148/148) → Reviewer ❌(Critical 2건) → Implementer ✅(adaptive fence+SubagentStart parent-context+tc-147~148) → Tester ✅(150/150) → Reviewer ✅(승인) |
-| 건너뜀 | 없음 |
-| 반복 이슈 | 첫 응답에서 Maestro 헤더를 또 생략했고, UserPromptSubmit만 보고 SubagentStart 재주입 경로와 fence 탈출 케이스를 1차 수정에서 놓침 |
-
-**자기비평**: "헤더를 출력하라"는 지시와 실제 assistant 본문 보장은 다르다는 점을 충분히 분리하지 못했고, 사용자 지적 직전 응답에서도 파이프라인 헤더를 생략해 같은 실수를 반복했다.
-**다음 번 개선**: UserPromptSubmit 계열 변경은 반드시 실제 실행 기반 TC로 검증하고, 원본 프롬프트를 다시 주입하는 SubagentStart/PostToolUse 경로까지 함께 점검한다.
