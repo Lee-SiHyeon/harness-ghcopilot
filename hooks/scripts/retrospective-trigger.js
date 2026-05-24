@@ -132,48 +132,55 @@ function parseJsonLines(content) {
 
   safeWrite(DRAFT_PATH, draft);
 
-  // ── retrospective-history.md 자동 append ───────────────────────
-  const HISTORY_PATH = path.join(LOGS_DIR, 'retrospective-history.md');
+  // ── retro.jsonl 자동 append + markdown 재생성 ────────────────────
+  const JSONL_PATH = path.join(LOGS_DIR, 'retro.jsonl');
 
   try {
-    // 마크다운 주입 방지: 줄바꿈 제거
     function sanitizeMd(val) {
       return String(val ?? '').replace(/[\r\n]+/g, ' ').trim();
     }
 
     const today       = new Date().toISOString().slice(0, 10);
     const intentLabel = sanitizeMd(draft.intent || 'unknown');
-    const pipeline    = (draft.plannedPipeline || []).map(sanitizeMd).join('→');
+    const pipelineStr = (draft.plannedPipeline || []).map(sanitizeMd).join('→');
     const executed    = (draft.executedAgents  || []).map(sanitizeMd).map(a => `${a} ✅`).join(' → ') || '(기록 없음)';
     const skipped     = (draft.skippedAgents   || []).map(sanitizeMd).join(', ') || '없음';
-    const duration    = draft.durationMs ? `${Math.round(draft.durationMs / 1000)}s` : '?';
 
-    const entry = [
-      `\n---\n`,
-      `## ${today} — ${intentLabel}: ${pipeline}\n`,
-      `\n`,
-      `| 항목 | 내용 |\n`,
-      `|------|------|\n`,
-      `| 실행 | ${executed} |\n`,
-      `| 건너뜀 | ${skipped} |\n`,
-      `| 소요 | ${duration} |\n`,
-      `\n`,
-      `**자기비평**: (Maestro 기입 필요)\n`,
-      `**다음 번 개선**: (Maestro 기입 필요)\n`,
-    ].join('');
+    // dedup 체크 (date+title 조합)
+    const dupKey = `${today}|${intentLabel}`;
+    let isDup = false;
+    if (fs.existsSync(JSONL_PATH)) {
+      const existing = fs.readFileSync(JSONL_PATH, 'utf8').trim().split('\n').filter(Boolean);
+      for (const line of existing) {
+        try {
+          const r = JSON.parse(line);
+          if (r.date === today && r.title === intentLabel) { isDup = true; break; }
+        } catch { /* skip */ }
+      }
+    }
 
-    const HEADER = '# Maestro 회고 로그\n\n## 반복 패턴\n(없음)\n';
-    const dupKey = `## ${today} — ${intentLabel}: ${pipeline}`;
+    if (!isDup) {
+      const record = {
+        v:               1,
+        date:            today,
+        title:           intentLabel,
+        type:            intentLabel || 'unknown',
+        pipeline:        pipelineStr,
+        executed,
+        skipped,
+        repeatIssue:     '',
+        selfCritique:    '(Maestro 기입 필요)',
+        nextImprovement: '(Maestro 기입 필요)',
+        ts:              new Date().toISOString(),
+        sessionId:       sessionId || process.env.SESSION_ID || '',
+      };
+      fs.mkdirSync(path.dirname(JSONL_PATH), { recursive: true });
+      fs.appendFileSync(JSONL_PATH, JSON.stringify(record) + '\n', 'utf8');
 
-    let existing = '';
-    try { existing = fs.readFileSync(HISTORY_PATH, 'utf8'); } catch (_) {}
-
-    if (!existing) {
-      // 파일 없음: 헤더 + 첫 항목 동시 기록
-      fs.writeFileSync(HISTORY_PATH, HEADER + entry, 'utf8');
-    } else if (!existing.includes(dupKey)) {
-      // 기존 파일에 중복 없으면 append
-      fs.appendFileSync(HISTORY_PATH, entry, 'utf8');
+      // markdown 재생성
+      try {
+        require('./retro-renderer').render(LOGS_DIR);
+      } catch (_) {}
     }
   } catch (_) {}
   // ────────────────────────────────────────────────────────────────
