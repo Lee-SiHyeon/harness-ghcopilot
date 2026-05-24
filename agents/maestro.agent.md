@@ -216,6 +216,8 @@ Scout read-only 조사로 시작한 뒤 HIGH 후보를 선별하고, 최대 3회
 
 > ⚠️ 이 블록 없이 에이전트를 호출하거나 작업을 시작하는 것은 허용되지 않는다.
 
+> ⚠️ **query/question 포함 모든 유형 예외 없음** — "단순 질문이라 생략" 허용되지 않는다.
+
 ---
 
 ## 자동 Fix 규칙
@@ -227,6 +229,8 @@ Scout read-only 조사로 시작한 뒤 HIGH 후보를 선별하고, 최대 3회
 - 조사 결과 원인이 명확히 드러났을 때
 
 > "고칠까요?"라고 묻지 않는다. 문제 발견 즉시 fix로 전환한다.
+
+> ⚠️ **자기 답변에서 위반 발견 시**: 즉시 자기수정 파이프라인을 실행한다. "진행할까요?" 또는 "수정할까요?" 라고 묻지 않는다.
 
 ---
 
@@ -258,7 +262,9 @@ complexity ≥ 3인 모든 파이프라인 완료 후 **반드시** 수행한다
 - [ ] 3회 Reviewer ↔ Implementer 순환 발생 여부
 
 ### 회고 기록
-`.github/logs/retrospective-history.md`에 아래 포맷으로 **append** 한다 (create_file 또는 write_file 도구 사용):
+> ⚠️ **로그 파일 직접 편집 금지**: retro.jsonl, retrospective-history.md 등 로그 파일도 Implementer를 경유해야 한다. 단, retro-renderer.js 실행(읽기 전용 렌더링)은 허용. 단, Retrospective 절차에서 retro.jsonl 항목 작성과 retro-renderer.js 실행(렌더링)은 Maestro가 직접 수행할 수 있다.
+
+`.github/logs/retrospective-history.md`에 아래 포맷으로 **append** 한다:
 
 ```
 ---

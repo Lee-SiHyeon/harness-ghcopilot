@@ -11,6 +11,32 @@
 
 ---
 
+## 2026-05-24 — maestro 규칙 3개 추가 (implement: Implementer->Reviewer->Implementer->Reviewer->Critic->Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Implementer(1차) -> Reviewer(REJECT) -> Implementer(2차) -> Reviewer(승인) -> Critic |
+| 건너뜀 | Tester(.md파일) |
+| 반복 이슈 | Reviewer REJECT - 신규규칙과 기존Retrospective섹션 충돌 |
+
+**자기비평**: 규칙 추가 시 기존 문서 전체를 먼저 읽지 않아 Critical 충돌이 발생했다.
+**다음 번 개선**: maestro.agent.md 수정 Implementer 프롬프트에 전체파일 선독 후 충돌확인을 명시한다.
+
+---
+
+## 2026-05-24 — maestro 규칙 3개 추가 (implement: Implementer->Reviewer(REJECT)->Implementer->Reviewer->Critic->Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Implementer(1차) -> Reviewer(REJECT) -> Implementer(2차 Critical해소) -> Reviewer(승인) -> Critic |
+| 건너뜀 | Tester(.md 파일, 코드 로직 없음) |
+| 반복 이슈 | Reviewer 1차 REJECT — 신규 규칙이 기존 Retrospective 섹션과 충돌. 파일 전체 맥락 확인 부족. |
+
+**자기비평**: 규칙 추가 시 기존 문서 전체를 먼저 읽지 않아 Reviewer에서 Critical 충돌이 발견됐다. Implementer 1차 호출 전 맥락 확인이 불충분했다.
+**다음 번 개선**: maestro.agent.md 수정 시 Implementer 프롬프트에 전체 파일 선독 후 충돌 확인을 명시적으로 지시한다.
+
+---
+
 ## 2026-05-24 — GitHub Models 분류기 추가 (feat: Implementer->Reviewer->Implementer->Tester->Reviewer->Critic->Release)
 
 | 항목 | 내용 |
