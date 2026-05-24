@@ -20,9 +20,10 @@ const ACTION_TEMPLATES = {
   Documenter:   'Documenter 단계 누락 — 문서화 후속 작업 확인',
 };
 
-const HOOKS_DIR = path.resolve(__dirname, '..');
-const LOGS_DIR  = path.join(HOOKS_DIR, '..', 'logs');
+const HOOKS_DIR  = path.resolve(__dirname, '..');
+const LOGS_DIR   = path.join(HOOKS_DIR, '..', 'logs');
 const DRAFT_PATH = path.join(LOGS_DIR, 'retrospective-draft.json');
+const JSONL_PATH = path.join(LOGS_DIR, 'retro.jsonl');
 
 function safeRead(p) {
   try { return fs.readFileSync(p, 'utf8'); } catch { return null; }
@@ -40,6 +41,34 @@ function parseJsonLines(content) {
   return content.split('\n')
     .map(l => { try { return JSON.parse(l); } catch { return null; } })
     .filter(Boolean);
+}
+
+/**
+ * 의미 있는 개선 항목인지 판별 (placeholder/빈값 제거).
+ */
+function isMeaningfulImprovement(text) {
+  if (!text || typeof text !== 'string') return false;
+  const normalized = text.trim().toLowerCase();
+  if (normalized === '') return false;
+  if (normalized.includes('기입 필요')) return false;
+  const placeholders = new Set(['없음', '없음.', '해당 없음', '-', 'n/a']);
+  return !placeholders.has(normalized);
+}
+
+/**
+ * 세 소스의 actionItems를 message 기준 중복 제거 후 병합.
+ * 순서: 기존(보존 우선) → 신규 skipped/violation → retroImprovement
+ */
+function mergeActionItems(existingItems, newItems, retroItems) {
+  const seenMsgs = new Set();
+  const result = [];
+  for (const item of [...existingItems, ...newItems, ...retroItems]) {
+    if (item && typeof item.message === 'string' && !seenMsgs.has(item.message)) {
+      seenMsgs.add(item.message);
+      result.push(item);
+    }
+  }
+  return result;
 }
 
 (function main() {
@@ -117,6 +146,43 @@ function parseJsonLines(content) {
     });
   }
 
+  // ── 기존 draft.actionItems 보존 + retro.jsonl → retroImprovement 변환 ─────
+  let existingActionItems = [];
+  try {
+    const existingDraft = JSON.parse(fs.readFileSync(DRAFT_PATH, 'utf8'));
+    if (Array.isArray(existingDraft.actionItems)) {
+      existingActionItems = existingDraft.actionItems.filter(
+        item => item && typeof item.message === 'string'
+      );
+    }
+  } catch (_) {}
+
+  // 마지막 retro 레코드 1개만 확인 (과거 전체 retro.jsonl 재처리 금지)
+  const retroImprovements = [];
+  try {
+    const retroRaw = safeRead(JSONL_PATH);
+    if (retroRaw) {
+      const retroLines = retroRaw.trim().split('\n').filter(Boolean);
+      if (retroLines.length > 0) {
+        let lastRecord = null;
+        try { lastRecord = JSON.parse(retroLines[retroLines.length - 1]); } catch { /* skip */ }
+        if (lastRecord) {
+          const text = lastRecord.nextImprovement ? lastRecord.nextImprovement.trim() : '';
+          if (isMeaningfulImprovement(text)) {
+            retroImprovements.push({
+              source:  'retroImprovement',
+              agent:   'Maestro',
+              message: text,
+              ts:      lastRecord.ts || new Date().toISOString(),
+            });
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  const mergedActionItems = mergeActionItems(existingActionItems, actionItems, retroImprovements);
+
   const draft = {
     sessionId,
     ts: new Date().toISOString(),
@@ -127,13 +193,12 @@ function parseJsonLines(content) {
     executedAgents,
     skippedAgents,
     durationMs,
-    actionItems,
+    actionItems: mergedActionItems,
   };
 
   safeWrite(DRAFT_PATH, draft);
 
   // ── retro.jsonl 자동 append + markdown 재생성 ────────────────────
-  const JSONL_PATH = path.join(LOGS_DIR, 'retro.jsonl');
 
   try {
     function sanitizeMd(val) {
@@ -191,7 +256,9 @@ function parseJsonLines(content) {
 
   try {
     const { generatePendingTCs } = require('./tc-generator');
-    const pendingTCs = generatePendingTCs(actionItems, TEST_FILE_PATH);
+    // retroImprovement source는 generatePendingTCs에서 제외 (prompt injection 방지)
+    const tcActionItems = mergedActionItems.filter(i => i.source !== 'retroImprovement');
+    const pendingTCs = generatePendingTCs(tcActionItems, TEST_FILE_PATH);
     if (pendingTCs.length > 0) {
       safeWrite(AUTO_TC_PATH, {
         generatedAt:     new Date().toISOString(),
@@ -206,3 +273,5 @@ function parseJsonLines(content) {
 
   process.exit(0);
 })();
+
+module.exports = { isMeaningfulImprovement, mergeActionItems };

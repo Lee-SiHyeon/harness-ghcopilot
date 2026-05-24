@@ -16,7 +16,6 @@ model: [Claude Opus 4.7 (copilot), GPT-5.5 (copilot), Claude Sonnet 4.6 (copilot
 # VS Code 도구 전체: 'vscode/*'  |  개별 도구: 'vscode/runCommand', 'vscode/askQuestions' ...
 # MCP 서버 전체: 'context7/*'    |  개별 도구: 'context7/query-docs' ...
 tools: [read, search, web, 'context7/*']
-
 # ─── 가시성 설정 ────────────────────────────────────────────────────
 # false: 에이전트 드롭다운에 표시 안 됨 (subagent로만 사용 가능)
 user-invocable: true

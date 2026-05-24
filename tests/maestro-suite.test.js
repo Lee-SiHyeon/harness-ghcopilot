@@ -1252,4 +1252,67 @@ tc('tc-120', 'audit-logger', 'nextSeq() 두 번 호출 시 seq 단조증가 (2 >
   }
 });
 
+// ── tc-121~124: retrospective-trigger nextImprovement → actionItems merge ──
+tc('tc-121', 'retrospective-trigger / mergeActionItems', 'mergeActionItems 함수 존재', () => {
+  const src = readSrc('retrospective-trigger.js');
+  if (!src.includes('function mergeActionItems')) throw new Error('mergeActionItems 함수 없음');
+});
+
+tc('tc-122', 'retrospective-trigger / mergeActionItems', '기존 actionItems 유지 + retroImprovement 추가', () => {
+  const src = readSrc('retrospective-trigger.js');
+  const merge = extractFn(src, 'mergeActionItems');
+  const existing = [{ message: '기존 항목', source: 'retroImprovement', ts: '2024-01-01T00:00:00Z' }];
+  const newItems = [{ message: '신규 항목', source: 'skippedAgent', agent: 'Tester', ts: '2024-01-02T00:00:00Z' }];
+  const retro    = [{ message: 'retro 개선', source: 'retroImprovement', agent: 'Maestro', ts: '2024-01-03T00:00:00Z' }];
+  const result   = merge(existing, newItems, retro);
+  if (result.length !== 3) throw new Error(`기대: 3, 실제: ${result.length}`);
+  if (!result.some(i => i.message === '기존 항목'))  throw new Error('기존 항목이 사라짐');
+  if (!result.some(i => i.message === '신규 항목'))  throw new Error('신규 항목이 없음');
+  if (!result.some(i => i.message === 'retro 개선')) throw new Error('retroImprovement 항목이 없음');
+});
+
+tc('tc-123', 'retrospective-trigger / mergeActionItems', '중복 message 제거 (dedup)', () => {
+  const src = readSrc('retrospective-trigger.js');
+  const merge = extractFn(src, 'mergeActionItems');
+  const existing = [{ message: '같은 메시지', source: 'retroImprovement', ts: '2024-01-01T00:00:00Z' }];
+  const newItems = [{ message: '같은 메시지', source: 'skippedAgent', agent: 'Tester', ts: '2024-01-02T00:00:00Z' }];
+  const retro    = [{ message: '같은 메시지', source: 'retroImprovement', agent: 'Maestro', ts: '2024-01-03T00:00:00Z' }];
+  const result   = merge(existing, newItems, retro);
+  if (result.length !== 1) throw new Error(`중복 제거 실패: ${result.length}개 (기대: 1)`);
+  if (result[0].source !== 'retroImprovement') throw new Error('기존 항목이 우선순위를 잃음');
+});
+
+tc('tc-124', 'retrospective-trigger / isMeaningfulImprovement', 'placeholder 변형은 false, 실제 개선 문장은 true', () => {
+  const src = readSrc('retrospective-trigger.js');
+  const fn = extractFn(src, 'isMeaningfulImprovement');
+  // placeholder → false
+  const falsy = ['', null, undefined, '(Maestro 기입 필요)', '없음', '없음.', '해당 없음', '-', 'n/a', 'N/A'];
+  for (const v of falsy) {
+    if (fn(v) !== false) throw new Error(`"${v}" → false 기대했지만 true 반환`);
+  }
+  // 실제 개선 문장 → true
+  const truthy = ['에러 로그 개선', 'API 응답 캐싱 추가', 'Tester 실행 전 lint 통과 확인'];
+  for (const v of truthy) {
+    if (fn(v) !== true) throw new Error(`"${v}" → true 기대했지만 false 반환`);
+  }
+});
+
+tc('tc-125', 'retrospective-trigger / generatePendingTCs-retro-exclusion', 'generatePendingTCs 호출 시 retroImprovement source 제외 검증', () => {
+  const src = readSrc('retrospective-trigger.js');
+  // retro source 제외 필터가 존재하는지
+  if (!src.includes("source !== 'retroImprovement'")) {
+    throw new Error('retroImprovement 제외 필터 코드 없음');
+  }
+  // 필터링된 변수(tcActionItems)로 generatePendingTCs를 호출하는지
+  if (!/generatePendingTCs\(tcActionItems/.test(src)) {
+    throw new Error('generatePendingTCs(tcActionItems, ...) 호출 패턴 없음 — mergedActionItems를 직접 전달 중일 수 있음');
+  }
+  // 과거 전체 retro.jsonl 스캔 코드가 제거되었는지
+  if (src.includes('for (const r of parseJsonLines(retroRaw))')) {
+    throw new Error('retro.jsonl 전체 스캔 코드가 아직 남아있음');
+  }
+  // 기존 draft.actionItems 보존 코드는 유지되어야 함
+  if (!src.includes('existingActionItems')) throw new Error('existingActionItems 읽기 코드 없음');
+});
+
 run();

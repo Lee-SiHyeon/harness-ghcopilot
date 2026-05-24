@@ -11,6 +11,32 @@
 
 ---
 
+## 2026-05-24 — 회고 개선점 자동 fix 누락 수정 (fix: Investigator→Implementer×2→Tester×2→Reviewer×2→Critic→Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Investigator ✅ → Implementer ✅(nextImprovement→actionItems merge) → Tester ✅(124/124) → Reviewer ✅(Warning 3건) → Implementer ✅(retro source TC 제외+placeholder 실행검증) → Tester ✅(125/125) → Reviewer ✅(승인) → Critic → Release |
+| 건너뜀 | 없음 |
+| 반복 이슈 | 회고 개선점이 actionItems로 변환되지 않아 다음 프롬프트 자동 fix가 실행되지 않는 경로를 사용자 지적으로 발견 |
+
+**자기비평**: D-4 전환 때 retro.jsonl 쓰기 경로와 retro-improvement-parser 실행 경로가 다르다는 통합 검증을 빠뜨렸고, 수동 append로 회고를 남겨 자동 actionItem 변환을 우회했다.
+**다음 번 개선**: 회고 저장 경로를 바꾸는 변경은 다음 UserPromptSubmit에서 actionItems가 실제로 주입되는 통합 테스트까지 포함한다.
+
+---
+
+## 2026-05-30 — D-4 회고 JSONL + D-1 모듈 분리 (refactor: Implementer→Implementer→Tester→Reviewer→Implementer→Reviewer→Critic→Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Implementer ✅(D-4 JSONL) → Implementer ✅(D-1 분리) → Tester ✅(120/120) → Reviewer ✅(W2건) → Implementer ✅(W1주석+W2원자적쓰기) → Reviewer ✅(승인) → Critic → Release |
+| 건너뜀 | Planner(계획 선세션 완료) |
+| 반복 이슈 | 없음 |
+
+**자기비평**: Implementer를 2회(D-4, D-1) 순차로 호출했는데 각각 독립적이므로 병렬 가능했다. Reviewer Warning 2건 → Implementer 수정 → Reviewer 재확인 절차는 정상 실행됨.
+**다음 번 개선**: 독립적인 리팩토링 단계(D-4, D-1)는 Implementer 병렬 호출로 처리한다.
+
+---
+
 ## 2026-05-24 — Scout Ralph Loop 스킬/훅 추가 (implement: Planner→Implementer→Tester→Reviewer→Critic→Release)
 
 | 항목 | 내용 |
