@@ -50,7 +50,16 @@ function tryAudit(obj) {
         if (raw) stdinData = JSON.parse(raw);
       }
     } catch (_) {}
-    const agentName = (stdinData?.agent_id || stdinData?.agent_name || stdinData?.agentName || process.env.SUBAGENT_NAME || process.env.AGENT_NAME || '').trim();
+    // V-new4: Tool Call ID 패턴이면 agent_id 무시
+    function isToolCallId(id) {
+      return !!id && /^toolu_[a-zA-Z0-9_]+$/.test(id);
+    }
+    const rawAgentId = stdinData?.agent_id || '';
+    const agentName  = (
+      (isToolCallId(rawAgentId) ? '' : rawAgentId) ||
+      stdinData?.agent_name || stdinData?.agentName ||
+      process.env.SUBAGENT_NAME || process.env.AGENT_NAME || ''
+    ).trim();
     const sessionId = (stdinData?.session_id || stdinData?.sessionId || process.env.SESSION_ID || '').trim();
     const ts        = new Date().toISOString();
 
@@ -62,6 +71,7 @@ function tryAudit(obj) {
     let startTs       = null;
     let fallbackUsed  = false;
     let fallbackType  = 'none';
+    let inferredAgentName = null;
 
     try {
       const starts = JSON.parse(fs.readFileSync(lastStartFile, 'utf8'));
@@ -96,6 +106,7 @@ function tryAudit(obj) {
       if (!entry) fallbackType = 'no_start_record';
 
       if (entry) {
+        inferredAgentName = entry.agentName || null;
         correlationId = entry.correlationId || null;
         startTs       = entry.startTs || entry.ts || null;  // backward compat
         if (startTs) {
@@ -109,7 +120,7 @@ function tryAudit(obj) {
 
     trySubagentFlow({
       event:         'SubagentStop',
-      agentName:     agentName || null,
+      agentName:     agentName || inferredAgentName || null,
       sessionId:     sessionId || null,
       seq,
       correlationId,
@@ -123,7 +134,7 @@ function tryAudit(obj) {
     tryAudit({
       event:         'subagent_stop',
       source:        'SubagentStop',
-      agentName:     agentName || null,
+      agentName:     agentName || inferredAgentName || null,
       sessionId:     sessionId || null,
       seq,
       correlationId,

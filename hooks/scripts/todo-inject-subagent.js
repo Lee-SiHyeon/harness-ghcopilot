@@ -178,7 +178,15 @@ const DEFAULT_GUIDE = [
   } catch (_) {}
   // NOTE: prompt는 의도적으로 stdin에서 재할당하지 않음 — USER_PROMPT env var만 사용.
   // SubagentStart payload의 user_message는 현재 가이드 생성에 불필요.
-  agentName = (stdinData?.agent_id || stdinData?.agent_name || stdinData?.agentName || agentName).trim();
+  // V-new4: Tool Call ID 패턴이면 agent_id 무시
+  function isToolCallId(id) {
+    return !!id && /^toolu_[a-zA-Z0-9_]+$/.test(id);
+  }
+  const rawAgentId = stdinData?.agent_id || '';
+  agentName = (
+    (isToolCallId(rawAgentId) ? '' : rawAgentId) ||
+    stdinData?.agent_name || stdinData?.agentName || agentName
+  ).trim();
 
   // 1. .agent.md 읽기 + 가이드 선택 — 두 작업 병렬 처리
   const [description, guide] = await Promise.all([

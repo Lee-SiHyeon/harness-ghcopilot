@@ -11,6 +11,19 @@
 
 ---
 
+## 2026-05-24 — Scout Ralph Loop 2차: V-new1~4 수정 (subagent agentName 추적 강화) (fix: Scout->Planner->Implementer x2->Tester->Reviewer->Critic->Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Scout(H1 부분 fix 진단, V-new1~4 발견) -> Planner(F1-F4+tc-167 계획) -> Implementer x2(병렬A: stop-logger/retro-trigger/todo-inject + B: tc-167) -> Tester(169/169) -> Reviewer(승인, W-1 유지보수 주의) -> Critic |
+| 건너뜀 | 없음 |
+| 반복 이슈 | H1 JSONL 기록 — agentName이 여전히 Bedrock tool_use_id로 기록됨. V-new4에서 toolu_ 패턴 필터링 추가했으나 런타임에서 실제 역할명을 제공하지 않아 구조적 한계 지속. |
+
+**자기비평**: isToolCallId 헬퍼가 두 파일에 중복 정의됐다(W-1). 단기 해결은 가능하지만 공용 utils 분리 없이 인라인 중복을 허용한 것은 유지보수 부채다.
+**다음 번 개선**: isToolCallId 같은 공용 판별 함수는 hooks/scripts/router/utils.js 또는 shared-utils.js로 분리하고 양쪽에서 require로 import한다.
+
+---
+
 ## 2026-05-24 — Scout Ralph Loop: HIGH 4건 수정 (V-1,V-2,V-3+V-10+V-12,V-4) (fix: Scout->Planner->Implementer x5->Tester x3->Reviewer x2->Critic->Release)
 
 | 항목 | 내용 |

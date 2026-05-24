@@ -109,7 +109,7 @@ function detectAbsentAgentItems(intent, executedAgents, sessionFlows) {
 
   // H-4: Implementer 다중 실행 후 Reviewer 재확인 없음 감지
   const stopsOrdered = sessionFlows.filter(l =>
-    l.event === 'subagent_stop' || l.event === 'stop'
+    l.event === 'subagent_stop' || l.event === 'stop' || l.event === 'SubagentStop'
   );
   const implCount = stopsOrdered.filter(l =>
     (l.agentName || l.agent) === 'Implementer'
@@ -169,7 +169,7 @@ if (require.main === module) { (function main() {
 
   const executedAgents = [...new Set(
     sessionFlows
-      .filter(l => l.event === 'subagent_stop' || l.event === 'stop')
+      .filter(l => l.event === 'subagent_stop' || l.event === 'stop' || l.event === 'SubagentStop')
       .map(l => l.agentName || l.agent)
       .filter(Boolean)
   )];
@@ -178,8 +178,8 @@ if (require.main === module) { (function main() {
   const skippedAgents = plannedPipeline.filter(a => !executedAgents.includes(a));
 
   // 총 소요 시간
-  const starts = sessionFlows.filter(l => l.event === 'subagent_start' || l.event === 'start');
-  const stops  = sessionFlows.filter(l => l.event === 'subagent_stop'  || l.event === 'stop');
+  const starts = sessionFlows.filter(l => l.event === 'subagent_start' || l.event === 'start' || l.event === 'SubagentStart');
+  const stops  = sessionFlows.filter(l => l.event === 'subagent_stop'  || l.event === 'stop'  || l.event === 'SubagentStop');
   const firstStart = starts[0]?.ts ? new Date(starts[0].ts).getTime() : null;
   const lastStop   = stops[stops.length - 1]?.ts ? new Date(stops[stops.length - 1].ts).getTime() : null;
   const durationMs = (firstStart && lastStop) ? lastStop - firstStart : null;

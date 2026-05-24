@@ -1947,4 +1947,18 @@ tc('tc-166', 'todo-inject-subagent/stdin-fallback', 'stdin 없이 SUBAGENT_NAME=
   if (!guide.includes('[Tester todo 가이드]')) throw new Error(`Tester 가이드 없음: ${guide.slice(0, 200)}`);
 });
 
+tc('tc-167', 'retrospective-trigger/impl-review-gap',
+  'PascalCase SubagentStop 이벤트에서도 implReviewGap 감지 (V-new2 회귀)', () => {
+  const { detectAbsentAgentItems } = require('../hooks/scripts/retrospective-trigger.js');
+  const flows = [
+    { event: 'SubagentStop', agentName: 'Implementer' },
+    { event: 'SubagentStop', agentName: 'Implementer' },
+  ];
+  const items = detectAbsentAgentItems('implement', ['Implementer', 'Tester', 'Critic'], flows);
+  const found = items.find(i => i.source === 'implReviewGap' && i.agent === 'Reviewer');
+  if (!found) throw new Error(
+    `source=implReviewGap, agent=Reviewer 항목 없음 (PascalCase). 실제: ${JSON.stringify(items)}`
+  );
+});
+
 run();

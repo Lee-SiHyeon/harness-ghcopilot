@@ -12,12 +12,5 @@
     "Context7 Docs Agent"
   ],
   "durationMs": null,
-  "actionItems": [
-    {
-      "source": "retroImprovement",
-      "agent": "Maestro",
-      "message": "H1 fix 검증 — 다음 세션의 첫 runSubagent 호출 후 subagent-flow.jsonl에서 agentName이 non-null로 기록되는지 1회 확인",
-      "ts": "2026-05-24T13:20:13.444Z"
-    }
-  ]
+  "actionItems": []
 }
