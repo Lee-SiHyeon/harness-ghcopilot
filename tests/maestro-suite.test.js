@@ -942,4 +942,33 @@ tc('tc-099', 'file-guard / nah-pattern', 'READ_ONLY_AGENTS, loadCurrentIntent, n
   }
 });
 
+// ── model-guard ────────────────────────────────────────────────
+tc('tc-100', 'model-guard / 파일 존재', 'model-guard.js 파일이 hooks/scripts에 존재', () => {
+  const p = path.join(HOOKS, 'model-guard.js');
+  if (!fs.existsSync(p)) throw new Error('model-guard.js 파일이 없음');
+});
+
+tc('tc-101', 'model-guard / model 없으면 continue', 'model 파라미터 없을 때 조기 통과', () => {
+  const src = fs.readFileSync(path.join(HOOKS, 'model-guard.js'), 'utf8');
+  if (!src.includes('if (!input.model)')) throw new Error('model 없을 때 조기 통과 로직 없음');
+});
+
+tc('tc-102', 'model-guard / userRequestedModel 없으면 ask 차단', 'ask decision + userRequestedModel 체크', () => {
+  const src = fs.readFileSync(path.join(HOOKS, 'model-guard.js'), 'utf8');
+  if (!src.includes("decision: 'ask'")) throw new Error('ask 차단 로직 없음');
+  if (!src.includes('userRequestedModel')) throw new Error('userRequestedModel 체크 없음');
+});
+
+tc('tc-103', 'maestro-router / userRequestedModel 저장', 'MODEL_KEYWORDS + userRequestedModel intent 저장', () => {
+  const src = fs.readFileSync(path.join(HOOKS, 'maestro-router.js'), 'utf8');
+  if (!src.includes('userRequestedModel')) throw new Error('userRequestedModel 저장 없음');
+  if (!src.includes('MODEL_KEYWORDS')) throw new Error('MODEL_KEYWORDS 감지 없음');
+});
+
+tc('tc-104', 'quality.json / runSubagent model-guard 등록', 'model-guard.js + runSubagent matcher', () => {
+  const src = fs.readFileSync(path.join(HOOKS_DIR, 'quality.json'), 'utf8');
+  if (!src.includes('model-guard.js')) throw new Error('model-guard.js 미등록');
+  if (!src.includes('runSubagent')) throw new Error('runSubagent matcher 없음');
+});
+
 run();

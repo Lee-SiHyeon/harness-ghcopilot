@@ -18,6 +18,15 @@
         "matcher": {
           "toolName": ["edit_file", "create_file", "delete_file", "rename_file", "move_file", "write_file", "replace_string_in_file", "multi_replace_string_in_file", "insert_edit_into_file", "edit_notebook_file", "apply_patch"]
         }
+      },
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/model-guard.js",
+        "windows": "node .github/hooks/scripts/model-guard.js",
+        "timeout": 3,
+        "matcher": {
+          "toolName": ["runSubagent"]
+        }
       }
     ]
   }

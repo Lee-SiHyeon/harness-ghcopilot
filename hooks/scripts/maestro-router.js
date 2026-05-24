@@ -593,7 +593,10 @@ function buildOutput(analysis, usedLLM) {
   // nah pattern: PreToolUse 가드가 읽을 수 있도록 현재 intent 저장
   try {
     const intentFile = path.join(process.cwd(), '.github', 'logs', 'current-intent.json');
-    fs.writeFileSync(intentFile, JSON.stringify({ intent: analysis.intent, ts: new Date().toISOString() }));
+    // 사용자가 특정 모델을 요청했는지 감지 (model-guard가 읽음)
+    const MODEL_KEYWORDS = /\b(gemini|gpt[-\s]?\d|claude|sonnet|opus|mistral|llama|o3|o4)\b/i;
+    const userRequestedModel = MODEL_KEYWORDS.test(prompt);
+    fs.writeFileSync(intentFile, JSON.stringify({ intent: analysis.intent, userRequestedModel, ts: new Date().toISOString() }));
   } catch (_) {}
 
   const result = buildOutput(analysis, usedLLM);
