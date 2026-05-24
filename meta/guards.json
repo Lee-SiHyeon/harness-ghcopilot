@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "_comment": "Guards SSOT — JS (hooks/scripts/safety-guard.js, file-guard.js)와 PY (langgraph-harness/tools/safety_guard.py, file_guard.py)가 공유하는 정적 데이터. 언어별 정규식 차이는 appliesTo 필터로 구분한다.",
+  "_version": "1.0.0",
+  "_updatedAt": "2026-05-25",
+
+  "protectedDirs": ["hooks", "agents", "workflows", "skills"],
+  "protectedFiles": ["maestro.agent.md"],
+  "sensitiveExtensions": [".env", ".key", ".pem", ".crt", ".cer", ".p12", ".pfx", ".jks"],
+  "envFilenamePattern": "\\.env(\\.[a-z]+)?$",
+  "lockFiles": ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"],
+
+  "destructiveCommands": [
+    { "name": "rm -rf (재귀 삭제)",                "regex": "rm\\s+-[rRfF]{1,4}\\s",                            "flags": "i", "appliesTo": ["js", "py"] },
+    { "name": "git push --force",                  "regex": "git\\s+push\\s+.*--force(?!-with-lease)",          "flags": "i", "appliesTo": ["js", "py"] },
+    { "name": "git push -f",                       "regex": "\\bgit\\s+push\\s+-f\\b",                          "flags": "i", "appliesTo": ["py"] },
+    { "name": "git reset --hard",                  "regex": "git\\s+reset\\s+--hard",                            "flags": "i", "appliesTo": ["js", "py"] },
+    { "name": "DROP TABLE (DB 테이블 삭제)",       "regex": "DROP\\s+TABLE",                                     "flags": "i", "appliesTo": ["js", "py"] },
+    { "name": "DROP DATABASE",                     "regex": "DROP\\s+DATABASE",                                  "flags": "i", "appliesTo": ["js", "py"] },
+    { "name": "kubectl delete",                    "regex": "kubectl\\s+(-n\\s+\\S+\\s+)?delete",               "flags": "i", "appliesTo": ["js"] },
+    { "name": "prisma migrate reset (DB 초기화)",  "regex": "npx\\s+prisma\\s+migrate\\s+reset",                "flags": "i", "appliesTo": ["js"] },
+    { "name": "위험한 파이프 + 삭제 조합",         "regex": ">\\s*/dev/null\\s*2>&1.*&&\\s*rm",                 "flags": "i", "appliesTo": ["js"] },
+    { "name": "find -delete (파일 일괄 삭제)",     "regex": "find\\s+.*-delete\\b",                              "flags": "i", "appliesTo": ["js"] },
+    { "name": "find -exec rm (파일 일괄 삭제)",    "regex": "find\\s+.*-exec\\s+rm\\b",                          "flags": "i", "appliesTo": ["js"] },
+    { "name": "Windows format drive",              "regex": "\\bformat\\s+[a-z]:",                               "flags": "i", "appliesTo": ["py"] },
+    { "name": "Windows del /s /q",                 "regex": "\\bdel\\s+/[sq]",                                   "flags": "i", "appliesTo": ["py"] },
+    { "name": "Windows rd /s /q",                  "regex": "\\brd\\s+/[sq]",                                    "flags": "i", "appliesTo": ["py"] }
+  ]
+}

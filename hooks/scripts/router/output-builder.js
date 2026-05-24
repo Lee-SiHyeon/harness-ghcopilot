@@ -4,6 +4,29 @@ const { loadSavedTodos, loadPrecompactState, formatResumeBlock } = require('./st
 const { isScoutLoopPrompt, SCOUT_RALPH_PROTOCOL_BLOCK } = require('./classifier');
 const { wrapUntrusted } = require('./env-utils');
 
+const CONTEXT7_AGENT = 'Context7 Docs Agent';
+
+// 라이브러리/프레임워크 감지 시 Context7을 파이프라인 첫 단계로 prepend.
+// 이미 포함돼 있으면 그대로 둔다 (회귀 retro 2026-05-24 question 유형 대응).
+function ensureContext7InPipeline(pipeline, stacks) {
+  if (!Array.isArray(stacks) || stacks.length === 0) return pipeline;
+  if (!Array.isArray(pipeline)) return pipeline;
+  if (pipeline.includes(CONTEXT7_AGENT)) return pipeline;
+  return [CONTEXT7_AGENT, ...pipeline];
+}
+
+// 라이브러리 감지 시 Maestro가 Context7을 건너뛰지 못하도록 강조 블록 추가.
+function buildContext7EnforcementBlock(stacks) {
+  if (!Array.isArray(stacks) || stacks.length === 0) return '';
+  return [
+    '## [⚠️ 라이브러리 감지 — Context7 호출 필수]',
+    `- 감지된 스택: **${stacks.join(', ')}**`,
+    '- 답변·구현·계획 전에 Context7 Docs Agent로 위 라이브러리의 최신 공식 문서를 반드시 조회한다.',
+    '- 단순 질의(question/query)라도 라이브러리 관련이면 Context7을 거쳐야 한다 (직접 답변 금지).',
+    '- 학습 데이터의 옛 API로 추측하는 것은 허용되지 않는다.',
+  ].join('\n');
+}
+
 function formatPipeline(pipeline) {
   return Array.isArray(pipeline) && pipeline.length > 0
     ? pipeline.join(' → ')
@@ -43,7 +66,13 @@ function buildOriginalRequestBlock(prompt) {
 function buildOutput(analysis, usedLLM, ctx) {
   const { prompt = '', MODEL = '', audit = null, tryAudit = () => {} } = ctx || {};
   const { intent, complexity, scope, security, stacks,
-          task_count, pipeline, needs_todo, reason } = analysis;
+          task_count, reason } = analysis;
+  let { pipeline, needs_todo } = analysis;
+
+  // 라이브러리 감지 시 Context7 강제 주입 (회귀: question 유형 Context7 건너뜀)
+  pipeline = ensureContext7InPipeline(pipeline, stacks);
+  analysis.pipeline = pipeline;
+  const context7Block = buildContext7EnforcementBlock(stacks);
 
   const source = usedLLM ? `🤖 LLM(${MODEL})` : '⚙️ regex폴백';
   const routingComplexity = intent === 'scout_loop' ? Math.max(complexity, 6) : complexity;
@@ -51,10 +80,13 @@ function buildOutput(analysis, usedLLM, ctx) {
 
   // 단순 요청 — 라우팅 정보만 표시하고 패스스루
   if (routingComplexity < 3) {
+    const simpleParts = [];
+    if (context7Block) simpleParts.push(context7Block);
+    simpleParts.push(buildOriginalRequestBlock(prompt));
     return {
       continue: true,
       hookSpecificOutput: `💬 [Maestro] \`${intent}\` (${source} | 복잡도: ${routingComplexity}/10) — ${reason}`,
-      modifiedParameters: { userMessage: buildUserMessage(analysis, [buildOriginalRequestBlock(prompt)]) },
+      modifiedParameters: { userMessage: buildUserMessage(analysis, simpleParts) },
     };
   }
 
@@ -116,6 +148,7 @@ function buildOutput(analysis, usedLLM, ctx) {
     const savedTodos  = loadSavedTodos();
     const resumeBlock = formatResumeBlock(loadPrecompactState());
     const parts = [];
+    if (context7Block) parts.push(context7Block);
     if (intent === 'scout_loop') parts.push(SCOUT_RALPH_PROTOCOL_BLOCK);
     if (resumeBlock) parts.push(resumeBlock);
     if (savedTodos) parts.push(savedTodos);
@@ -143,6 +176,7 @@ function buildOutput(analysis, usedLLM, ctx) {
   ].filter(Boolean).join('\n');
 
   const parts = [orchCtx];
+  if (context7Block) parts.push(context7Block);
   if (intent === 'scout_loop') parts.push(SCOUT_RALPH_PROTOCOL_BLOCK);
   if (resumeBlock) parts.push(resumeBlock);
   if (savedTodos) parts.push(savedTodos);
@@ -156,4 +190,9 @@ function buildOutput(analysis, usedLLM, ctx) {
   };
 }
 
-module.exports = { buildOutput, buildDisclosureHeader };
+module.exports = {
+  buildOutput,
+  buildDisclosureHeader,
+  ensureContext7InPipeline,
+  buildContext7EnforcementBlock,
+};

@@ -12,6 +12,8 @@
 
 'use strict';
 
+const { getDestructivePatterns } = require('./shared-utils');
+
 const toolName  = process.env.TOOL_NAME  || '';
 const toolInput = process.env.TOOL_INPUT || '{}';
 
@@ -31,20 +33,9 @@ try {
   command = toolInput;
 }
 
-// ── 파괴적 명령 패턴 ─────────────────────────────────────────────
-const DESTRUCTIVE_PATTERNS = [
-  { re: /rm\s+-[rRfF]{1,4}\s/,     label: 'rm -rf (재귀 삭제)' },
-  { re: /git\s+push\s+.*--force(?!-with-lease)/i, label: 'git push --force' },
-  // force-with-lease는 원격 브랜치 보호 안전 메커니즘 — 위험 패턴에서 제외
-  { re: /git\s+reset\s+--hard/i,  label: 'git reset --hard' },
-  { re: /DROP\s+TABLE/i,           label: 'DROP TABLE (DB 테이블 삭제)' },
-  { re: /DROP\s+DATABASE/i,        label: 'DROP DATABASE' },
-  { re: /kubectl\s+(-n\s+\S+\s+)?delete/i, label: 'kubectl delete' },
-  { re: /npx\s+prisma\s+migrate\s+reset/i, label: 'prisma migrate reset (DB 초기화)' },
-  { re: />\s*\/dev\/null\s*2>&1.*&&\s*rm/i, label: '위험한 파이프 + 삭제 조합' },
-  { re: /find\s+.*-delete\b/i,     label: 'find -delete (파일 일괄 삭제)' },
-  { re: /find\s+.*-exec\s+rm\b/i,  label: 'find -exec rm (파일 일괄 삭제)' },
-];
+// ── 파괴적 명령 패턴 (meta/guards.json SSOT에서 로드) ────────────
+// force-with-lease는 원격 브랜치 보호 안전 메커니즘 — guards.json 패턴에서 제외됨.
+const DESTRUCTIVE_PATTERNS = getDestructivePatterns('js');
 
 const matched = DESTRUCTIVE_PATTERNS.filter(p => p.re.test(command));
 

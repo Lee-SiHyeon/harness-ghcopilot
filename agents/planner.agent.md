@@ -50,3 +50,13 @@ handoffs:
 - 계획 없이 구현하지 않는다
 - 라이브러리 API는 Context7로 반드시 확인한다
 - 계획이 완성되면 "구현 시작" 버튼을 제시한다
+
+## TC 설계 사전 점검
+
+테스트 케이스가 `.js` 모듈을 `require()`하는 경우 계획서에 아래 점검 결과를 **반드시** 포함한다.
+
+- [ ] 대상 `.js` 모듈에 `require.main === module` 가드가 존재하는가? (가드 없이 `require`만 해도 top-level 부작용 — 로그 기록, 파일 쓰기, 외부 호출 — 이 발생하면 테스트마다 운영 로그가 오염된다)
+- [ ] 가드가 없다면 TC 추가 전에 가드 추가를 별도 작업으로 분리하거나, 대상 모듈을 mock하는 전략을 명시한다.
+- [ ] 가드 추가가 어려운 경우 `child_process.execSync`로 자식 프로세스에서 실행하는 패턴(`runMaestroRouter`, `runTodoInjectSubagent` 등)을 사용한다.
+
+> 근거: Scout Ralph Loop 1차에서 M-1 (require IIFE 로그 오염)이 Reviewer 단계까지 잡히지 않아 retro.jsonl / retrospective-draft.json이 오염됐다. 동일 회귀를 막기 위해 Planner 체크리스트에 명시적으로 포함한다.

@@ -1,4 +1,9 @@
-"""File guard: protect sensitive files from agent writes."""
+"""File guard: protect sensitive files from agent writes.
+
+Protected directories, protected files, sensitive extensions, and the env
+filename pattern are loaded from ``meta/guards.json`` (SSOT shared with the
+JS ``hooks/scripts/file-guard.js``).
+"""
 
 from __future__ import annotations
 
@@ -7,13 +12,17 @@ import re
 from pathlib import Path
 from typing import Literal
 
-# Files and directories that require explicit user confirmation before writing.
-_PROTECTED_DIRS: list[str] = ["hooks"]
-_PROTECTED_FILES: list[str] = ["maestro.agent.md"]
+from tools.guards_loader import load_guards
+
+_guards = load_guards()
+_PROTECTED_DIRS: list[str] = list(_guards.get("protectedDirs", []))
+_PROTECTED_FILES: list[str] = list(_guards.get("protectedFiles", []))
 _SENSITIVE_EXTENSIONS: frozenset[str] = frozenset(
-    [".env", ".key", ".pem", ".crt", ".cer", ".p12", ".pfx", ".jks"]
+    ext.lower() for ext in _guards.get("sensitiveExtensions", [])
 )
-_ENV_PATTERN: re.Pattern[str] = re.compile(r"\.env(\.[a-z]+)?$", re.IGNORECASE)
+_ENV_PATTERN: re.Pattern[str] = re.compile(
+    _guards.get("envFilenamePattern", r"\.env(\.[a-z]+)?$"), re.IGNORECASE
+)
 
 FileGuardResult = Literal["allow", "ask", "deny"]
 

@@ -30,7 +30,7 @@ const { loadSavedTodos, loadPrecompactState, formatResumeBlock } = require('./ro
 const { loadRetrospectiveLearnings, loadActionItems, loadActionItemsCount } = require('./router/retro-loaders');
 const { classifyWithGitHubModels, classifyWithRegex,
         isScoutLoopPrompt, SCOUT_RALPH_PROTOCOL_BLOCK, getLlmErrorReason } = require('./router/classifier');
-const { buildOutput }                                            = require('./router/output-builder');
+const { buildOutput, ensureContext7InPipeline, buildContext7EnforcementBlock } = require('./router/output-builder');
 
 loadEnv();
 
@@ -82,6 +82,9 @@ if (isMaestroContext) {
 
   const actionCount = loadActionItemsCount();
   const analysis = classifyWithRegex(prompt);  // sync path: regex만 사용 (속도 우선)
+  // 라이브러리 감지 시 Context7 강제 주입 (Maestro context도 동일 정책)
+  analysis.pipeline = ensureContext7InPipeline(analysis.pipeline, analysis.stacks);
+  const context7Block = buildContext7EnforcementBlock(analysis.stacks);
   const isScoutLoop = analysis.intent === 'scout_loop' || isScoutLoopPrompt(prompt);
   const disclosurePipeline = actionCount >= 1
     ? [`자가비평 ${actionCount}건 처리`, ...analysis.pipeline]
@@ -96,6 +99,7 @@ if (isMaestroContext) {
     '이 블록 없이 내용을 출력하거나 에이전트를 호출하면 규칙 위반이다.',
   );
   if (isScoutLoop) parts.push(SCOUT_RALPH_PROTOCOL_BLOCK);
+  if (context7Block) parts.push(context7Block);
   // 미해결 개선 항목 경고 주입
   const actionWarning = loadActionItems();
   if (actionWarning) parts.push(actionWarning);

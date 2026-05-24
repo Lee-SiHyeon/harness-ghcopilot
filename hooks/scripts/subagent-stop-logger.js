@@ -19,6 +19,8 @@
 const fs   = require('fs');
 const path = require('path');
 
+const { isToolCallId } = require('./shared-utils');
+
 let audit = null;
 try { audit = require('./audit-logger'); } catch (_) {}
 
@@ -50,10 +52,6 @@ function tryAudit(obj) {
         if (raw) stdinData = JSON.parse(raw);
       }
     } catch (_) {}
-    // V-new4: Tool Call ID 패턴이면 agent_id 무시
-    function isToolCallId(id) {
-      return !!id && /^toolu_[a-zA-Z0-9_]+$/.test(id);
-    }
     const rawAgentId = stdinData?.agent_id || '';
     const agentName  = (
       (isToolCallId(rawAgentId) ? '' : rawAgentId) ||

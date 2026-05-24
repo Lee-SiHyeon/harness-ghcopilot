@@ -1458,13 +1458,28 @@ tc('tc-128', 'retrospective-trigger / G6-Maestro-terminal', 'TERMINAL_AGENTS에 
 });
 
 // ── S1: safety-guard force-with-lease 오탐 제거 ──────────────────
-tc('tc-129', 'safety-guard / S1-no-force-with-lease-pattern', 'force-with-lease는 DESTRUCTIVE_PATTERNS에서 제외', () => {
+tc('tc-129', 'safety-guard / S1-no-force-with-lease-pattern', 'force-with-lease는 DESTRUCTIVE_PATTERNS에서 제외 (SSOT 검증)', () => {
+  // SSOT 마이그레이션 후: meta/guards.json의 destructiveCommands를 검증한다.
+  const guardsPath = path.resolve(__dirname, '..', 'meta', 'guards.json');
+  const guards = JSON.parse(fs.readFileSync(guardsPath, 'utf8'));
+  const cmds = guards.destructiveCommands || [];
+  // js에 적용되는 항목 중 git push --force 패턴이 있어야 한다
+  const jsForcePatterns = cmds.filter(c => Array.isArray(c.appliesTo) && c.appliesTo.includes('js') && /--force/.test(c.regex || ''));
+  if (jsForcePatterns.length === 0) throw new Error('guards.json에 js용 git push --force 패턴 없음');
+  // 그러나 force-with-lease를 그대로 매칭하는 항목은 없어야 한다 (negative lookahead로 제외돼야 함)
+  for (const c of jsForcePatterns) {
+    if (!c.regex.includes('(?!-with-lease)') && !c.regex.includes('(?!\\s*-with-lease)')) {
+      throw new Error(`패턴 ${c.name}이 force-with-lease 제외 lookahead 없음`);
+    }
+  }
+  // 동시에 safety-guard.js가 SSOT를 사용해야 한다 (인라인 DESTRUCTIVE_PATTERNS 배열 부재)
   const src = readSrc('safety-guard.js');
-  // 실제 re: 엔트리로 등록된 force-with-lease 패턴 없어야 함 (주석은 OK)
-  const rePattern = /\{\s*re\s*:\s*\/[^/]*force-with-lease/.test(src);
-  if (rePattern) throw new Error('force-with-lease가 DESTRUCTIVE_PATTERNS re: 항목으로 남아있음 — 오탐 제거 필요');
-  // plain --force는 여전히 유지
-  if (!src.includes('--force')) throw new Error('git push --force 패턴이 사라짐');
+  if (/const\s+DESTRUCTIVE_PATTERNS\s*=\s*\[/.test(src)) {
+    throw new Error('safety-guard.js에 인라인 DESTRUCTIVE_PATTERNS 배열 남아있음 — guards.json 로드로 전환 필요');
+  }
+  if (!/getDestructivePatterns\(['"]js['"]\)/.test(src)) {
+    throw new Error('safety-guard.js가 getDestructivePatterns("js") 호출로 SSOT를 사용하지 않음');
+  }
 });
 
 // ── T1: model-unavailability-tracker TTL ────────────────────────
@@ -1959,6 +1974,121 @@ tc('tc-167', 'retrospective-trigger/impl-review-gap',
   if (!found) throw new Error(
     `source=implReviewGap, agent=Reviewer 항목 없음 (PascalCase). 실제: ${JSON.stringify(items)}`
   );
+});
+
+tc('tc-168', 'shared-utils/isToolCallId',
+  'shared-utils.js의 isToolCallId가 toolu_ 패턴은 true, 그 외는 false (W-1 회귀)', () => {
+  const { isToolCallId } = require('../hooks/scripts/shared-utils.js');
+  if (typeof isToolCallId !== 'function') throw new Error('isToolCallId가 함수가 아님');
+  if (!isToolCallId('toolu_01ABCdef')) throw new Error('toolu_ 패턴이 true 반환해야 함');
+  if (!isToolCallId('toolu_xyz_123')) throw new Error('toolu_ + 언더스코어 패턴 true 반환해야 함');
+  if (isToolCallId('Implementer')) throw new Error('에이전트 이름은 false 반환해야 함');
+  if (isToolCallId('')) throw new Error('빈 문자열은 false 반환해야 함');
+  if (isToolCallId(null)) throw new Error('null은 false 반환해야 함');
+  if (isToolCallId('toolu-01ABC')) throw new Error('하이픈 변형은 false (정확한 prefix만 매칭)');
+});
+
+tc('tc-169', 'shared-utils/no-inline-duplication',
+  'subagent-stop-logger.js와 todo-inject-subagent.js에 isToolCallId 인라인 정의 없음 (W-1 회귀)', () => {
+  const FN_DEF_RE = /function\s+isToolCallId\s*\(/;
+  const REQUIRE_RE = /require\(['"]\.\/shared-utils['"]\)/;
+  for (const file of ['subagent-stop-logger.js', 'todo-inject-subagent.js']) {
+    const src = readSrc(file);
+    if (FN_DEF_RE.test(src)) throw new Error(`${file}에 isToolCallId 인라인 정의 남아있음 (shared-utils로 추출 필요)`);
+    if (!REQUIRE_RE.test(src)) throw new Error(`${file}이 shared-utils를 require하지 않음`);
+  }
+});
+
+tc('tc-170', 'output-builder/ensureContext7InPipeline',
+  '스택 감지 시 Context7 prepend, 이미 있으면 그대로, 빈 stacks면 미변경 (회귀)', () => {
+  const { ensureContext7InPipeline } = require('../hooks/scripts/router/output-builder.js');
+  const C7 = 'Context7 Docs Agent';
+  // 스택 감지 + Context7 미포함 → prepend
+  const a = ensureContext7InPipeline(['Planner', 'Implementer'], ['Next.js']);
+  if (a[0] !== C7 || a.length !== 3) throw new Error(`prepend 실패: ${JSON.stringify(a)}`);
+  // 이미 Context7 포함 → 그대로
+  const b = ensureContext7InPipeline([C7, 'Documenter', 'Critic'], ['React']);
+  if (b.length !== 3 || b[0] !== C7) throw new Error(`중복 prepend 발생: ${JSON.stringify(b)}`);
+  // 빈 stacks → 미변경
+  const c = ensureContext7InPipeline(['Planner', 'Implementer'], []);
+  if (c.length !== 2 || c[0] !== 'Planner') throw new Error(`빈 stacks인데 변경됨: ${JSON.stringify(c)}`);
+  // null stacks → 미변경
+  const d = ensureContext7InPipeline(['Planner'], null);
+  if (d.length !== 1) throw new Error(`null stacks인데 변경됨: ${JSON.stringify(d)}`);
+});
+
+tc('tc-171', 'output-builder/buildContext7EnforcementBlock',
+  '스택 감지 시 강조 블록 생성, 빈 stacks면 빈 문자열 (회귀)', () => {
+  const { buildContext7EnforcementBlock } = require('../hooks/scripts/router/output-builder.js');
+  const block = buildContext7EnforcementBlock(['Next.js', 'Prisma']);
+  if (!block.includes('Next.js')) throw new Error('감지된 스택 누락');
+  if (!block.includes('Prisma')) throw new Error('두 번째 스택 누락');
+  if (!block.includes('Context7')) throw new Error('Context7 언급 없음');
+  if (buildContext7EnforcementBlock([]) !== '') throw new Error('빈 stacks는 빈 문자열 반환해야 함');
+  if (buildContext7EnforcementBlock(null) !== '') throw new Error('null stacks는 빈 문자열 반환해야 함');
+});
+
+tc('tc-172', 'maestro-router/context7-injection-question',
+  '질문 + 라이브러리 키워드 → Maestro userMessage에 Context7 강조 블록 + 파이프라인 첫 단계 Context7', () => {
+  const result = runMaestroRouter('Next.js 14 미들웨어가 뭐야?', '');
+  const msg = result.modifiedParameters?.userMessage || '';
+  if (!msg.includes('Context7 호출 필수')) throw new Error(`강조 블록 누락: ${msg.slice(0, 300)}`);
+  if (!msg.includes('Next.js')) throw new Error('감지된 스택 미표시');
+  if (!/📋 \*\*파이프라인\*\*:\s*Context7 Docs Agent/.test(msg)) {
+    throw new Error(`파이프라인 첫 단계가 Context7이 아님: ${msg.match(/📋[^\n]*/)?.[0]}`);
+  }
+});
+
+tc('tc-173', 'maestro-router/no-context7-without-stacks',
+  '라이브러리 키워드 없는 단순 질문은 Context7 강조 블록 미주입 (negative 회귀)', () => {
+  const result = runMaestroRouter('이게 뭐야?', '');
+  const msg = result.modifiedParameters?.userMessage || '';
+  if (msg.includes('Context7 호출 필수')) throw new Error(`빈 stacks인데 강조 블록 주입됨: ${msg.slice(0, 300)}`);
+});
+
+tc('tc-174', 'shared-utils/loadGuards',
+  'loadGuards가 meta/guards.json을 읽어 SSOT 필드를 반환 (SSOT 회귀)', () => {
+  const { loadGuards } = require('../hooks/scripts/shared-utils.js');
+  const g = loadGuards();
+  if (!Array.isArray(g.protectedDirs) || !g.protectedDirs.includes('hooks')) throw new Error(`protectedDirs에 hooks 없음: ${JSON.stringify(g.protectedDirs)}`);
+  if (!Array.isArray(g.protectedFiles) || !g.protectedFiles.includes('maestro.agent.md')) throw new Error('protectedFiles 누락');
+  if (!Array.isArray(g.sensitiveExtensions) || g.sensitiveExtensions.length === 0) throw new Error('sensitiveExtensions 누락');
+  if (typeof g.envFilenamePattern !== 'string') throw new Error('envFilenamePattern 누락');
+  if (!Array.isArray(g.lockFiles) || !g.lockFiles.includes('package-lock.json')) throw new Error('lockFiles 누락');
+  if (!Array.isArray(g.destructiveCommands) || g.destructiveCommands.length === 0) throw new Error('destructiveCommands 누락');
+});
+
+tc('tc-175', 'shared-utils/getDestructivePatterns',
+  'getDestructivePatterns(lang)이 appliesTo 필터로 RegExp 배열 반환 (SSOT 회귀)', () => {
+  const { getDestructivePatterns } = require('../hooks/scripts/shared-utils.js');
+  const js = getDestructivePatterns('js');
+  if (!Array.isArray(js) || js.length === 0) throw new Error('js 패턴 비어있음');
+  for (const entry of js) {
+    if (!(entry.re instanceof RegExp)) throw new Error(`re가 RegExp 아님: ${typeof entry.re}`);
+    if (typeof entry.label !== 'string') throw new Error('label 없음');
+  }
+  // rm -rf 패턴은 양쪽 모두 적용 → js 결과에 포함돼야 한다
+  const hasRmRf = js.some(e => e.re.test('rm -rf /tmp/x'));
+  if (!hasRmRf) throw new Error('js 패턴에 rm -rf 매칭 항목 없음');
+  // Windows del /s는 py-only → js 결과에 없어야 한다
+  const hasDelSlash = js.some(e => e.re.test('del /s C:\\foo'));
+  if (hasDelSlash) throw new Error('py-only del /s 패턴이 js 결과에 누출됨');
+  // py 호출도 동작
+  const py = getDestructivePatterns('py');
+  const pyHasDel = py.some(e => e.re.test('del /s C:\\foo'));
+  if (!pyHasDel) throw new Error('py 패턴에 del /s 매칭 항목 없음');
+});
+
+tc('tc-176', 'file-guard/uses-ssot',
+  'file-guard.js가 인라인 LOCK_FILES/sensitive 패턴 없이 guards.json을 사용 (SSOT 회귀)', () => {
+  const src = readSrc('file-guard.js');
+  if (!/loadGuards\(\)/.test(src)) throw new Error('file-guard.js가 loadGuards()를 호출하지 않음');
+  if (/new\s+Set\(\[\s*['"]package-lock\.json['"]/.test(src)) {
+    throw new Error('file-guard.js에 인라인 LOCK_FILES 배열 남아있음');
+  }
+  if (/\.\(pem\|key\|cert\|p12\|pfx\)\$/.test(src)) {
+    throw new Error('file-guard.js에 인라인 확장자 regex 남아있음');
+  }
 });
 
 run();

@@ -19,6 +19,16 @@
 const path = require('path');
 const fs   = require('fs');
 
+const { loadGuards } = require('./shared-utils');
+const GUARDS = loadGuards();
+const PROTECTED_DIRS = Array.isArray(GUARDS.protectedDirs) ? GUARDS.protectedDirs : [];
+const PROTECTED_FILES = Array.isArray(GUARDS.protectedFiles) ? GUARDS.protectedFiles : [];
+const SENSITIVE_EXTENSIONS = new Set(
+  (Array.isArray(GUARDS.sensitiveExtensions) ? GUARDS.sensitiveExtensions : []).map(e => e.toLowerCase())
+);
+const ENV_FILENAME_RE = new RegExp(GUARDS.envFilenamePattern || '\\.env(\\.[a-z]+)?$', 'i');
+const LOCK_FILES = new Set(Array.isArray(GUARDS.lockFiles) ? GUARDS.lockFiles : []);
+
 let audit = null;
 try { audit = require('./audit-logger'); } catch (_) {}
 function tryAudit(obj) { if (!audit) return; try { audit.appendAudit(obj); } catch (_) {} }
@@ -70,18 +80,16 @@ try {
     } catch { return null; }
   }
 
-  // 보호 패턴 ─────────────────────────────────────────────────────
+  // 보호 패턴 (meta/guards.json SSOT 사용) ──────────────────────────
   function isProtectedGithubPath(p) {
     const rel = p.slice(cwdNorm.length + 1);
-    return rel.startsWith('.github/hooks/')
-        || rel.startsWith('.github/agents/')
-        || rel.startsWith('.github/workflows/')
-        || rel.startsWith('.github/skills/');
+    return PROTECTED_DIRS.some(d => rel.startsWith(`.github/${d}/`));
   }
 
   function isMaestroAgentPath(p) {
     const rel = p.slice(cwdNorm.length + 1);
-    return rel === '.github/agents/maestro.agent.md';
+    // PROTECTED_FILES는 자기수정 정책 대상 — 현재는 maestro.agent.md 단독.
+    return PROTECTED_FILES.some(f => rel === `.github/agents/${f}`);
   }
 
   function isMaestroAgent(name) {
@@ -94,15 +102,13 @@ try {
 
   function isSensitivePath(p) {
     const base = path.posix.basename(p);
-    // .env, .env.xxx
-    if (base === '.env' || base.startsWith('.env.')) return true;
-    // 인증서/키/시크릿 파일
-    if (/\.(pem|key|cert|p12|pfx)$/.test(base)) return true;
+    if (ENV_FILENAME_RE.test(base)) return true;          // .env, .env.xxx
+    const ext = path.posix.extname(base).toLowerCase();    // .pem .key .cert .p12 .pfx 등
+    if (ext && SENSITIVE_EXTENSIONS.has(ext)) return true;
     if (/credentials|\.secret/.test(base)) return true;
     return false;
   }
 
-  const LOCK_FILES = new Set(['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']);
   function isLockFile(p) {
     return LOCK_FILES.has(path.posix.basename(p));
   }
