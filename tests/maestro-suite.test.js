@@ -971,4 +971,36 @@ tc('tc-104', 'quality.json / runSubagent model-guard 등록', 'model-guard.js + 
   if (!src.includes('runSubagent')) throw new Error('runSubagent matcher 없음');
 });
 
+tc('tc-105', 'model-unavailability-tracker.js 파일 존재', 'PostToolUse cost tier 추적 훅', () => {
+  if (!fs.existsSync(path.join(HOOKS, 'model-unavailability-tracker.js'))) throw new Error('model-unavailability-tracker.js 없음');
+});
+
+tc('tc-106', 'model-unavailability-tracker / cost tier 패턴 감지', 'exceeds cost tier 정규식 포함', () => {
+  const src = fs.readFileSync(path.join(HOOKS, 'model-unavailability-tracker.js'), 'utf8');
+  if (!src.includes('cost tier')) throw new Error('cost tier 패턴 없음');
+  if (!src.includes('cost-tier-exceeded.json')) throw new Error('저장 파일명 없음');
+});
+
+tc('tc-107', 'maestro-router / cost-tier-exceeded 주입', '사용 불가 모델 컨텍스트 주입', () => {
+  const src = fs.readFileSync(path.join(HOOKS, 'maestro-router.js'), 'utf8');
+  if (!src.includes('cost-tier-exceeded.json')) throw new Error('cost-tier-exceeded 로드 없음');
+  if (!src.includes('사용 불가 모델')) throw new Error('사용 불가 모델 경고 주입 없음');
+});
+
+tc('tc-108', 'maestro-routing.json / model-unavailability-tracker 등록', 'PostToolUse 등록 확인', () => {
+  const src = fs.readFileSync(path.join(HOOKS_DIR, 'maestro-routing.json'), 'utf8');
+  if (!src.includes('model-unavailability-tracker.js')) throw new Error('PostToolUse 미등록');
+});
+
+tc('tc-109', 'implementer.agent.md / 원본 모델 순서 복원', 'Claude Opus 4.7 첫 번째', () => {
+  const src = readAgent('implementer.agent.md');
+  if (!src.includes('Claude Opus 4.7 (copilot), GPT-5.5')) throw new Error('원본 모델 순서 아님');
+});
+
+tc('tc-110', 'model-guard / agent 파일 선언 모델은 허용', 'loadAgentModelList + 선언 모델 통과', () => {
+  const src = fs.readFileSync(path.join(HOOKS, 'model-guard.js'), 'utf8');
+  if (!src.includes('loadAgentModelList')) throw new Error('loadAgentModelList 함수 없음');
+  if (!src.includes('agentModels.includes')) throw new Error('agent 모델 리스트 허용 로직 없음');
+});
+
 run();

@@ -31,6 +31,35 @@ try {
   // model 파라미터 없으면 패스
   if (!input.model) { out({ continue: true }); process.exit(0); }
 
+  // 에이전트 파일의 선언된 model 목록 조회
+  function loadAgentModelList(name) {
+    if (!name || name === 'unknown') return [];
+    try {
+      const agentsDir = path.join(process.cwd(), '.github', 'agents');
+      // agentName과 일치하는 .agent.md 파일 탐색
+      const files = fs.readdirSync(agentsDir);
+      for (const f of files) {
+        if (!f.endsWith('.agent.md')) continue;
+        const content = fs.readFileSync(path.join(agentsDir, f), 'utf8');
+        // name: 필드 확인 (RegExp 인젝션 방지: 특수문자 이스케이프)
+        const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (!new RegExp(`^name:\\s*${escapedName}\\s*$`, 'm').test(content)) continue;
+        // model: [...] 파싱
+        const modelMatch = content.match(/^model:\s*\[([^\]]+)\]/m);
+        if (!modelMatch) return [];
+        return modelMatch[1].split(',').map(s => s.trim().replace(/['"]/g, ''));
+      }
+    } catch { return []; }
+    return [];
+  }
+
+  // 에이전트 파일에 선언된 모델이면 허용 (정상 fallback)
+  const agentModels = loadAgentModelList(agentName);
+  if (agentModels.length > 0 && agentModels.includes(input.model)) {
+    out({ continue: true });
+    process.exit(0);
+  }
+
   // current-intent.json에서 사용자가 모델을 명시 요청했는지 확인
   function loadCurrentIntent() {
     try {

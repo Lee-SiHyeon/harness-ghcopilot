@@ -2,7 +2,25 @@
 
 ## 반복 패턴
 - **Tester 건너뜀**: 2회 / 마지막: 2026-05-24 / 개선: implement·fix 파이프라인에서 Reviewer 호출 전 Tester 호출 의무 (사용자 지적 시점 1회, 자동수정 시점 1회)
-- **Retrospective 단계 누락**: 3회 / 마지막: 2026-05-24 / 개선: Critic H2 FAIL 발생 시 Release 전 회고 기록을 즉시 수행하고 재호출
+- **Retrospective 단계 누락**: 4회 / 마지막: 2026-05-24 / 개선: Critic H2 FAIL 발생 시 Release 전 회고 기록을 즉시 수행하고 재호출
+- **Reviewer·Critic 건너뜀**: 1회 / 마지막: 2026-05-24 / 개선: 모든 fix 파이프라인에서 Tester 후 반드시 Reviewer → Critic 순서 준수
+
+---
+
+## 2026-05-24 — model-guard fallback + model-unavailability-tracker 구현 (fix: Implementer→Tester→Reviewer→Critic→Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Implementer ✅ (직접구현) → Tester ✅ (110/110) → Reviewer ✅ → Critic ✅ |
+| 건너뜀 | 없음 (1차 시도에서 Reviewer/Critic 누락됐다가 사용자 지적 후 수정) |
+| 반복 이슈 | (1) Reviewer/Critic 건너뜀, (2) implementer.agent.md 모델 순서 임의 변경 |
+
+**자기비평**: 초기 구현 시 Tester 후 바로 Release로 이어져 Reviewer·Critic을 건너뜀. agent 파일 모델 순서를 증상 패치 방식으로 바꿨다가 사용자 지적으로 원복 + 올바른 fallback 메커니즘으로 재구현.
+**다음 번 개선**: fix 파이프라인 완료 후 Reviewer·Critic 없이 Release로 넘어가는 것을 model-guard처럼 훅으로 강제 — PostToolUse에서 `runSubagent(Release)` 호출 전 Reviewer/Critic 통과 여부를 test-gate와 유사하게 검사.
+
+---
+
+
 - **파이프라인 노출(🎯/📋) 누락**: 2회 / 마지막: 2026-05-24 / 개선: agent 파일 규칙이 아닌 훅 주입으로 강제 (규칙 = 훅)
 - **Maestro 직접 코드 수정 (Implementer 우회)**: 1회 / 마지막: 2026-05-24 / 개선: maestro.agent.md 5단계 선언-실행 일치 의무 + 2단계 Tester FAIL 처리 규칙으로 1줄 typo도 Implementer 경유 강제
 - **자가비평이 📋에 노출 안 됨**: 1회 / 마지막: 2026-05-24 / 개선: maestro-router.js가 actionCount 기반으로 `📋 [자가비평 N건 처리] → ...` 동적 주입

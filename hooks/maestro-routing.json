@@ -42,6 +42,12 @@
         "command": "node .github/hooks/scripts/test-gate.js",
         "windows": "node .github/hooks/scripts/test-gate.js",
         "timeout": 5
+      },
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/model-unavailability-tracker.js",
+        "windows": "node .github/hooks/scripts/model-unavailability-tracker.js",
+        "timeout": 2
       }
     ],
     "PreCompact": [

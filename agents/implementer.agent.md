@@ -2,7 +2,7 @@
 name: Implementer
 description: 계획서를 받아 실제 코드를 구현하는 에이전트. Context7로 최신 API를 확인하며 안전하게 구현한다.
 tools: [read, edit, search, execute, todo, 'context7/*']
-model: [Claude Sonnet 4.6 (copilot), GPT-5.4 (copilot), Gemini 2.5 Pro (copilot), Claude Opus 4.7 (copilot)]
+model: [Claude Opus 4.7 (copilot), GPT-5.5 (copilot), Gemini 3.5 Flash (copilot), Claude Sonnet 4.6 (copilot)]
 handoffs:
   - label: Test - 테스트 실행 요청
     agent: Tester

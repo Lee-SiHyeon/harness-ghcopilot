@@ -272,6 +272,19 @@ if (agentName === 'Maestro') {
   // 과거 회고 패턴 주입 (todo 유무 무관하게 항상 주입)
   const retroBlock = loadRetrospectiveLearnings();
   if (retroBlock) parts.push(retroBlock);
+  // cost tier 초과 모델 경고 주입
+  try {
+    const exceededFile = path.join(process.cwd(), '.github', 'logs', 'cost-tier-exceeded.json');
+    const exceededData = JSON.parse(fs.readFileSync(exceededFile, 'utf8'));
+    if (Array.isArray(exceededData.models) && exceededData.models.length > 0) {
+      parts.push(
+        '',
+        '## [사용 불가 모델 - cost tier 초과]',
+        '아래 모델은 현재 cost tier를 초과합니다. runSubagent 호출 시 model 파라미터를 생략하거나, 에이전트 파일 목록에서 이 모델들을 건너뛰고 다음 폴백 모델을 선택하세요:',
+        exceededData.models.map(m => `  - ${sanitizeForPrompt(String(m), 80)}`).join('\n'),
+      );
+    }
+  } catch (_) {}
   parts.push('', '## [원본 요청]', prompt);
   const promptSummary = audit ? audit.summarize(prompt, 100) : prompt.slice(0, 100);
   tryAudit({ event: 'maestro_passthrough', source: 'UserPromptSubmit', agentName, promptSummary });
