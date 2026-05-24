@@ -1794,4 +1794,157 @@ tc('tc-156', 'maestro-policy / test-file-extension-agnostic', 'maestro.agent.md 
   }
 });
 
+// ════════════════════════════════════════════════════════════════
+// GROUP: pipelines/ssot — D 파이프라인 & step 검증
+// ════════════════════════════════════════════════════════════════
+tc('tc-157', 'pipelines/ssot', 'pipelines.json D 파이프라인 — "Context7 Docs Agent" 포함, "Context7" 단독 미포함', () => {
+  const META = path.resolve(__dirname, '..', 'meta');
+  const json = JSON.parse(fs.readFileSync(path.join(META, 'pipelines.json'), 'utf8'));
+  const D = json.pipelines.find(p => p.id === 'D');
+  if (!D) throw new Error('D 파이프라인 없음');
+  if (!D.steps.includes('Context7 Docs Agent')) throw new Error('D.steps에 "Context7 Docs Agent" 없음');
+  if (D.steps.includes('Context7')) throw new Error('D.steps에 단독 "Context7" 남아있음 — 제거 필요');
+});
+
+tc('tc-158', 'pipelines/ssot', 'pipelines.json 모든 step이 허용 에이전트 목록에 존재', () => {
+  const META = path.resolve(__dirname, '..', 'meta');
+  const json = JSON.parse(fs.readFileSync(path.join(META, 'pipelines.json'), 'utf8'));
+  const ALLOWED = new Set([
+    'Planner', 'Implementer', 'Reviewer', 'Tester', 'Critic',
+    'Release', 'Documenter', 'Investigator', 'Scout', 'Context7 Docs Agent',
+  ]);
+  const allSteps = json.pipelines.flatMap(p => p.steps);
+  const unknown = allSteps.filter(s => !ALLOWED.has(s));
+  if (unknown.length > 0) throw new Error(`허용 목록에 없는 step: ${[...new Set(unknown)].join(', ')}`);
+});
+
+// ════════════════════════════════════════════════════════════════
+// GROUP: maestro-policy/tool-restriction — edit 제거 검증
+// ════════════════════════════════════════════════════════════════
+tc('tc-159', 'maestro-policy/tool-restriction', 'maestro.agent.md frontmatter tools에 "edit" 미포함', () => {
+  const md = readAgent('maestro.agent.md');
+  const fmMatch = md.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fmMatch) throw new Error('frontmatter 없음 (--- 블록 미발견)');
+  const fm = fmMatch[1];
+  const toolsLine = fm.split('\n').find(l => /^tools\s*:/.test(l));
+  if (!toolsLine) throw new Error('frontmatter에 tools: 라인 없음');
+  if (/\bedit\b/.test(toolsLine)) throw new Error(`tools에 "edit" 포함됨: ${toolsLine}`);
+});
+
+// ════════════════════════════════════════════════════════════════
+// GROUP: retrospective-trigger/absent-agent — detectAbsentAgentItems
+// ════════════════════════════════════════════════════════════════
+tc('tc-160', 'retrospective-trigger/absent-agent', 'intent=implement + Tester 미실행 → absentAgent actionItem 추가', () => {
+  const origExit = process.exit;
+  process.exit = () => {};
+  let detectAbsentAgentItems;
+  try {
+    ({ detectAbsentAgentItems } = require('../hooks/scripts/retrospective-trigger.js'));
+  } finally {
+    process.exit = origExit;
+  }
+  const items = detectAbsentAgentItems('implement', ['Planner', 'Implementer', 'Reviewer', 'Critic'], []);
+  const found = items.find(i => i.agent === 'Tester' && i.source === 'absentAgent');
+  if (!found) throw new Error(`agent=Tester, source=absentAgent 항목 없음. 실제: ${JSON.stringify(items)}`);
+});
+
+tc('tc-161', 'retrospective-trigger/absent-agent', 'Critic 미실행 → absentAgent actionItem 추가', () => {
+  const { detectAbsentAgentItems } = require('../hooks/scripts/retrospective-trigger.js');
+  const items = detectAbsentAgentItems('implement', ['Planner', 'Implementer', 'Tester', 'Reviewer'], []);
+  const found = items.find(i => i.agent === 'Critic' && i.source === 'absentAgent');
+  if (!found) throw new Error(`agent=Critic, source=absentAgent 항목 없음. 실제: ${JSON.stringify(items)}`);
+});
+
+// ════════════════════════════════════════════════════════════════
+// GROUP: retrospective-trigger/impl-review-gap
+// ════════════════════════════════════════════════════════════════
+tc('tc-162', 'retrospective-trigger/impl-review-gap', 'Implementer ≥2 + Reviewer 없음 → implReviewGap actionItem 추가', () => {
+  const { detectAbsentAgentItems } = require('../hooks/scripts/retrospective-trigger.js');
+  const flows = [
+    { event: 'subagent_stop', agentName: 'Implementer' },
+    { event: 'subagent_stop', agentName: 'Implementer' },
+  ];
+  const items = detectAbsentAgentItems('implement', ['Implementer', 'Tester', 'Critic'], flows);
+  const found = items.find(i => i.source === 'implReviewGap' && i.agent === 'Reviewer');
+  if (!found) throw new Error(`source=implReviewGap, agent=Reviewer 항목 없음. 실제: ${JSON.stringify(items)}`);
+});
+
+tc('tc-163', 'retrospective-trigger/impl-review-gap', 'Implementer ≥2 + 마지막 이후 Reviewer 있음 → implReviewGap 미추가 (negative)', () => {
+  const { detectAbsentAgentItems } = require('../hooks/scripts/retrospective-trigger.js');
+  const flows = [
+    { event: 'subagent_stop', agentName: 'Implementer' },
+    { event: 'subagent_stop', agentName: 'Implementer' },
+    { event: 'subagent_stop', agentName: 'Reviewer' },
+  ];
+  const items = detectAbsentAgentItems('implement', ['Implementer', 'Reviewer', 'Tester', 'Critic'], flows);
+  const gap = items.find(i => i.source === 'implReviewGap');
+  if (gap) throw new Error(`implReviewGap이 잘못 추가됨: ${JSON.stringify(gap)}`);
+});
+
+// ════════════════════════════════════════════════════════════════
+// GROUP: todo-inject-subagent / stdin  &  subagent-stop-logger / stdin
+// ════════════════════════════════════════════════════════════════
+tc('tc-164', 'todo-inject-subagent/stdin', 'stdin agent_id=Planner → Planner 가이드 주입', () => {
+  const os = require('os');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc164-'));
+  const scriptPath = path.join(HOOKS, 'todo-inject-subagent.js');
+  const env = {
+    ...process.env,
+    USER_PROMPT:   '',
+    AGENT_NAME:    '',
+    SUBAGENT_NAME: '',
+    SESSION_ID:    'test-session',
+  };
+  try {
+    const raw = execSync(`node "${scriptPath}"`, {
+      env,
+      cwd: tmpDir,
+      input: JSON.stringify({ agent_id: 'Planner' }),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).toString('utf8').trim();
+    const result = JSON.parse(raw);
+    const guide = result.modifiedParameters && result.modifiedParameters.userMessage;
+    if (!guide) throw new Error('modifiedParameters.userMessage 없음');
+    if (!guide.includes('[Planner todo 가이드]')) throw new Error(`Planner 가이드 없음: ${guide.slice(0, 200)}`);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+tc('tc-165', 'subagent-stop-logger/stdin', 'stdin agent_id=Reviewer → subagent-flow.jsonl agentName="Reviewer"', () => {
+  const os = require('os');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc165-'));
+  const logsDir = path.join(tmpDir, '.github', 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
+  const scriptPath = path.join(HOOKS, 'subagent-stop-logger.js');
+  const env = {
+    ...process.env,
+    SUBAGENT_NAME: '',
+    AGENT_NAME:    '',
+    SESSION_ID:    'test-session',
+  };
+  try {
+    execSync(`node "${scriptPath}"`, {
+      env,
+      cwd: tmpDir,
+      input: JSON.stringify({ agent_id: 'Reviewer' }),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const flowFile = path.join(logsDir, 'subagent-flow.jsonl');
+    if (!fs.existsSync(flowFile)) throw new Error('subagent-flow.jsonl 생성 안 됨');
+    const lines = fs.readFileSync(flowFile, 'utf8').trim().split('\n').filter(Boolean);
+    const last = JSON.parse(lines[lines.length - 1]);
+    if (last.agentName !== 'Reviewer') throw new Error(`agentName 불일치: 기대=Reviewer 실제=${last.agentName}`);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+tc('tc-166', 'todo-inject-subagent/stdin-fallback', 'stdin 없이 SUBAGENT_NAME=Tester → env var fallback 유지 (회귀)', () => {
+  const result = runTodoInjectSubagent('', 'Tester');
+  const guide = result.modifiedParameters && result.modifiedParameters.userMessage;
+  if (!guide) throw new Error('modifiedParameters.userMessage 없음');
+  if (!guide.includes('[Tester todo 가이드]')) throw new Error(`Tester 가이드 없음: ${guide.slice(0, 200)}`);
+});
+
 run();

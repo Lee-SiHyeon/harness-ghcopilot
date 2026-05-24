@@ -28,8 +28,8 @@ try { audit = require('./audit-logger'); } catch (_) {}
 function trySubagentFlow(obj) { if (!audit) return; try { audit.appendSubagentFlow(obj); } catch (_) {} }
 function tryAudit(obj) { if (!audit) return; try { audit.appendAudit(obj); } catch (_) {} }
 
-const agentName = (process.env.SUBAGENT_NAME || process.env.AGENT_NAME || '').trim();
-const prompt    = (process.env.USER_PROMPT || '').trim();
+let agentName = (process.env.SUBAGENT_NAME || process.env.AGENT_NAME || '').trim();
+let prompt    = (process.env.USER_PROMPT || '').trim();
 
 // ── .agent.md 에서 description 비동기 추출 ─────────────────────────
 async function readAgentDescription(name) {
@@ -160,6 +160,26 @@ const DEFAULT_GUIDE = [
 
 // ── 메인 (async) ───────────────────────────────────────────────────
 (async () => {
+  // ── stdin JSON 파싱 (SubagentStart 훅 데이터) ──────────────────
+  let stdinData = null;
+  try {
+    if (!process.stdin.isTTY) {
+      const chunks = [];
+      let totalBytes = 0;
+      const MAX_STDIN_BYTES = 64 * 1024;
+      for await (const chunk of process.stdin) {
+        totalBytes += chunk.length;
+        if (totalBytes > MAX_STDIN_BYTES) { chunks.length = 0; stdinData = null; break; }
+        chunks.push(chunk);
+      }
+      const raw = Buffer.concat(chunks).toString('utf8').trim();
+      if (raw) stdinData = JSON.parse(raw);
+    }
+  } catch (_) {}
+  // NOTE: prompt는 의도적으로 stdin에서 재할당하지 않음 — USER_PROMPT env var만 사용.
+  // SubagentStart payload의 user_message는 현재 가이드 생성에 불필요.
+  agentName = (stdinData?.agent_id || stdinData?.agent_name || stdinData?.agentName || agentName).trim();
+
   // 1. .agent.md 읽기 + 가이드 선택 — 두 작업 병렬 처리
   const [description, guide] = await Promise.all([
     readAgentDescription(agentName),                        // 비동기: 파일 I/O

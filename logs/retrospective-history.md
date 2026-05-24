@@ -11,6 +11,32 @@
 
 ---
 
+## 2026-05-24 — Scout Ralph Loop: HIGH 4건 수정 (V-1,V-2,V-3+V-10+V-12,V-4) (fix: Scout->Planner->Implementer x5->Tester x3->Reviewer x2->Critic->Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Scout(Opus, 7원칙+12위반+HIGH4) -> Planner(F1-F5계획+TC7개) -> Implementer x2(병렬, F1+F2 / F3+F4) -> Implementer(F5 TC) -> Tester(164/165 FAIL:tc-159 CRLF) -> Implementer(CRLF fix) -> Tester(165/165) -> Reviewer(BLOCKING:M-1 require IIFE 로그오염) -> Implementer(require.main guard+Mi-1+N-1+mock정리) -> Tester(165/165, 로그오염없음) -> Reviewer(승인) -> Critic |
+| 건너뜀 | 없음 |
+| 반복 이슈 | Critic H1 FAIL: subagent-flow.jsonl에 이번 세션의 모든 runSubagent 호출이 agentName=null로 기록됨. 자동 검증 인프라가 작동하지 않음. (H2/H6 함께 FAIL — Maestro 직접 수정으로 해소) |
+
+**자기비평**: Reviewer가 M-1 (require()로 IIFE 실행되어 프로덕션 로그 오염)을 잡지 못했다면 retro.jsonl/draft.json이 테스트마다 더럽혀졌을 것. TC 작성 시 import 시점 부작용을 무조건 검증해야 했다.
+**다음 번 개선**: .js 모듈을 require하는 TC를 추가할 때마다 require.main===module 가드 존재 여부 사전 점검을 Planner 체크리스트에 포함시킨다.
+
+---
+
+## 2026-05-24 — question (question: Context7 Docs Agent)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | (기록 없음) |
+| 건너뜀 | Context7 Docs Agent |
+| 반복 이슈 | 없음 |
+
+**자기비평**: Context7 Docs Agent 호출 없이 질문에 답하려 했다. 단순 질의여도 라이브러리 관련이면 Context7 거쳐야 한다.
+**다음 번 개선**: question 유형이라도 라이브러리/프레임워크 키워드 감지 시 Context7 Docs Agent를 첫 단계로 추가한다.
+
+---
+
 ## 2026-05-24 — TC 149-156 추가 + file-guard isRetroHistory 예외 (implement: Planner->Implementer->Tester->Implementer->Tester->Reviewer->Critic->Release)
 
 | 항목 | 내용 |

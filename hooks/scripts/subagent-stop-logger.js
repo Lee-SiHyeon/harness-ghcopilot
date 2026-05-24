@@ -34,8 +34,24 @@ function tryAudit(obj) {
 
 (async () => {
   try {
-    const agentName = (process.env.SUBAGENT_NAME || process.env.AGENT_NAME || '').trim();
-    const sessionId = (process.env.SESSION_ID || '').trim();
+    // ── stdin JSON 파싱 (SubagentStop 훅 데이터) ──────────────────
+    let stdinData = null;
+    try {
+      if (!process.stdin.isTTY) {
+        const chunks = [];
+        let totalBytes = 0;
+        const MAX_STDIN_BYTES = 64 * 1024;
+        for await (const chunk of process.stdin) {
+          totalBytes += chunk.length;
+          if (totalBytes > MAX_STDIN_BYTES) { chunks.length = 0; stdinData = null; break; }
+          chunks.push(chunk);
+        }
+        const raw = Buffer.concat(chunks).toString('utf8').trim();
+        if (raw) stdinData = JSON.parse(raw);
+      }
+    } catch (_) {}
+    const agentName = (stdinData?.agent_id || stdinData?.agent_name || stdinData?.agentName || process.env.SUBAGENT_NAME || process.env.AGENT_NAME || '').trim();
+    const sessionId = (stdinData?.session_id || stdinData?.sessionId || process.env.SESSION_ID || '').trim();
     const ts        = new Date().toISOString();
 
     const logsDir       = path.resolve(process.cwd(), '.github', 'logs');

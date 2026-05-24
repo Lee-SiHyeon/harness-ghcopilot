@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Requires Node.js >= 18 (Array.prototype.findLastIndex)
 /**
  * retrospective-trigger.js
  * SubagentStop hook — 파이프라인 종료 시 실행 데이터를 draft JSON에 기록.
@@ -74,7 +75,66 @@ function mergeActionItems(existingItems, newItems, retroItems) {
   return result;
 }
 
-(function main() {
+/**
+ * H-3·H-4 감지 — 부재 에이전트 기반 actionItem 생성.
+ * @param {string} intent - 'implement' | 'fix' | 'plan' | ...
+ * @param {string[]} executedAgents - 실행된 에이전트 이름 배열
+ * @param {Array<{event:string, agentName?:string, agent?:string}>} sessionFlows - subagent-flow 로그 항목
+ * @returns {Array<{source:string, agent:string, message:string, ts:string}>}
+ */
+function detectAbsentAgentItems(intent, executedAgents, sessionFlows) {
+  const items = [];
+  const ts = new Date().toISOString();
+
+  // H-3: implement/fix 파이프라인에서 Tester 미실행 감지
+  if (intent === 'implement' || intent === 'fix') {
+    if (!executedAgents.includes('Tester')) {
+      items.push({
+        source:  'absentAgent',
+        agent:   'Tester',
+        message: ACTION_TEMPLATES.Tester,
+        ts,
+      });
+    }
+  }
+  // H-3: Critic 미실행 감지 (intent 무관)
+  if (!executedAgents.includes('Critic')) {
+    items.push({
+      source:  'absentAgent',
+      agent:   'Critic',
+      message: 'Critic 미실행 — 파이프라인 준수 감사 없이 종료됨. 다음 실행 시 Critic 포함 필수',
+      ts,
+    });
+  }
+
+  // H-4: Implementer 다중 실행 후 Reviewer 재확인 없음 감지
+  const stopsOrdered = sessionFlows.filter(l =>
+    l.event === 'subagent_stop' || l.event === 'stop'
+  );
+  const implCount = stopsOrdered.filter(l =>
+    (l.agentName || l.agent) === 'Implementer'
+  ).length;
+  if (implCount >= 2) {
+    const lastImplIdx = stopsOrdered.findLastIndex(l =>
+      (l.agentName || l.agent) === 'Implementer'
+    );
+    const reviewerAfter = stopsOrdered.slice(lastImplIdx + 1).some(l =>
+      (l.agentName || l.agent) === 'Reviewer'
+    );
+    if (!reviewerAfter) {
+      items.push({
+        source:  'implReviewGap',
+        agent:   'Reviewer',
+        message: 'Implementer ≥2회 실행 후 Reviewer 재확인 없음 — 다음 실행 시 Reviewer 재호출 필수',
+        ts,
+      });
+    }
+  }
+
+  return items;
+}
+
+if (require.main === module) { (function main() {
   const agentName   = process.env.SUBAGENT_NAME || process.env.AGENT_NAME || '';
   const sessionId   = process.env.SESSION_ID    || process.env.COPILOT_SESSION_ID || '';
 
@@ -148,6 +208,9 @@ function mergeActionItems(existingItems, newItems, retroItems) {
       ts:      v.ts || new Date().toISOString(),
     });
   }
+
+  const absentItems = detectAbsentAgentItems(intent, executedAgents, sessionFlows);
+  actionItems.push(...absentItems);
 
   // ── 기존 draft.actionItems 보존 + retro.jsonl → retroImprovement 변환 ─────
   let existingActionItems = [];
@@ -275,6 +338,6 @@ function mergeActionItems(existingItems, newItems, retroItems) {
   } catch (_) {}
 
   process.exit(0);
-})();
+})(); }
 
-module.exports = { isMeaningfulImprovement, mergeActionItems };
+module.exports = { isMeaningfulImprovement, mergeActionItems, detectAbsentAgentItems };
