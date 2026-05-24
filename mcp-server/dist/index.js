@@ -1,0 +1,15 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { registerTodoTools } from "./todo-tools.js";
+import { registerPipelineTools } from "./pipeline-tools.js";
+import { registerActionItemsTools } from "./actionitems-tools.js";
+import { registerTestGateTools } from "./testgate-tools.js";
+import { registerRetroTools } from "./retro-tools.js";
+const server = new McpServer({ name: "github-state", version: "1.0.0" });
+registerTodoTools(server);
+registerPipelineTools(server);
+registerActionItemsTools(server);
+registerTestGateTools(server);
+registerRetroTools(server);
+const transport = new StdioServerTransport();
+await server.connect(transport);

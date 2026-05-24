@@ -131,6 +131,11 @@ function tryAudit(obj) {
       ...(fallbackUsed ? { fallbackUsed: true } : {}),
     });
 
+    try {
+      const { recordStop } = require('../../mcp-server/state-lib/pipeline.js');
+      recordStop(agentName || inferredAgentName || '', sessionId || '');
+    } catch (_) {}
+
     tryAudit({
       event:         'subagent_stop',
       source:        'SubagentStop',

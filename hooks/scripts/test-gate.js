@@ -116,42 +116,37 @@ function isExcludedFileChange(toolInput) {
 }
 
 // ── 경로 ──────────────────────────────────────────────────────────
-const EVIDENCE_FILE = path.resolve(process.cwd(), '.github/logs/test-evidence.json');
-const STATE_FILE    = path.resolve(process.cwd(), '.github/logs/test-gate-state.json');
+
+
+// ── state-lib 위임 ─────────────────────────────────────────────────
+const {
+  getGateState,
+  setGateState,
+  recordEvidence: recordEvidenceLib,
+  getEvidence,
+} = require('../../mcp-server/state-lib/testgate.js');
 
 // ── 상태 파일 읽기 / 쓰기 ─────────────────────────────────────────
 function readState() {
-  try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); }
+  try { return getGateState(); }
   catch { return {}; }
 }
 
 function writeState(state) {
-  try {
-    const dir = path.dirname(STATE_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
-  } catch { /* fail-open */ }
+  try { setGateState(state); }
+  catch { /* fail-open */ }
 }
 
 // ── 증거 파일 읽기 ────────────────────────────────────────────────
 function readEvidence() {
-  try {
-    const raw = fs.readFileSync(EVIDENCE_FILE, 'utf8');
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  try { return getEvidence(); }
+  catch { return null; }
 }
 
 // ── 증거 파일 쓰기 ────────────────────────────────────────────────
 function writeEvidence(record) {
-  try {
-    const dir = path.dirname(EVIDENCE_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(EVIDENCE_FILE, JSON.stringify(record, null, 2), 'utf8');
-  } catch {
-    // fail-open: 기록 실패해도 훅은 계속
-  }
+  try { recordEvidenceLib(record); }
+  catch { /* fail-open: 기록 실패해도 훅은 계속 */ }
 }
 
 // ── 증거 유효성 확인 (PASS + 최신성) ─────────────────────────────
@@ -377,8 +372,14 @@ function parseEnvFallback() {
   } else {
     // stdin JSON 파싱 시도 (훅 표준 경로)
     try {
+      const MAX_STDIN_BYTES = 64 * 1024;
       const chunks = [];
-      for await (const chunk of process.stdin) chunks.push(chunk);
+      let total = 0;
+      for await (const chunk of process.stdin) {
+        total += chunk.length;
+        if (total > MAX_STDIN_BYTES) break;
+        chunks.push(chunk);
+      }
       const raw = Buffer.concat(chunks).toString('utf8').trim();
       if (raw) {
         const parsed = JSON.parse(raw);

@@ -7,9 +7,9 @@ const { sanitizeForPrompt, wrapUntrusted } = require('./env-utils');
 
 // ── 저장된 todo 상태 읽기 (컨텍스트 압축 생존 보장) ─────────────
 function loadSavedTodos() {
-  const stateFile = path.resolve(process.cwd(), '.github', 'logs', 'current-todos.json');
   try {
-    const raw = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    const { getTodos } = require('../../../mcp-server/state-lib/todo.js');
+    const raw = getTodos();
     const todos = raw.todos || [];
     if (todos.length === 0) return null;
     const STATUS_ICON = { 'completed': '✅', 'in-progress': '🔄', 'not-started': '□' };

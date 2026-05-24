@@ -359,3 +359,15 @@
 
 **자기비평**: Implementer를 항목별로 5회 순차 호출했는데 일부 독립 항목(HIGH-6+HIGH-3 등)은 병렬 호출 가능했다. Reviewer가 Warning 2건을 발견했지만 Critical 없이 승인까지 1-pass로 끝났다.
 **다음 번 개선**: 독립적인 파일 수정은 Implementer 병렬 호출로 시간 단축. 보안 패치는 항목별 TC를 새로 추가하여 명시적 회귀 커버리지 확보.
+
+
+## 2026-05-25 — 로컬 MCP 서버 전면 구축 (feat: Planner->Implementer x4->Tester x3->Reviewer x2->Critic->Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Planner ✅ → Implementer #1(state-lib+MCP src) ✅ → Implementer #2(훅 마이그레이션+mcp.json) ✅ → Tester #1(168/169) ✅ → Implementer #3(tc-061 수정) ✅ → Tester #2(169/169) ✅ → Reviewer(C-1 발견) ✅ → Implementer #4(C-1+W-1~3 수정) ✅ → Tester #3(169/169) ✅ → Reviewer 재확인 ✅ → Critic ✅ |
+| 건너뜀 | 없음 |
+| 반복 이슈 | Reviewer → Implementer → Tester → Reviewer 재검토 루프가 1회 발생 (C-1 result/status 필드 불일치). 초기 Implementer #2 단계에서 필드 이름 통일 검토가 충분하지 않았음. |
+
+**자기비평**: state-lib의 isEvidenceValid()가 `status` 필드만 체크하는데, 기존 hook이 `result`로 기록함을 사전에 확인하지 않아 Reviewer 단계에서야 발견됐다. 계획 단계에서 필드 스키마 일치 여부를 명시적으로 검토해야 했다.
+**다음 번 개선**: 기존 데이터 구조와 신규 state-lib 스키마 사이 필드명 매핑 테이블을 Planner 단계에서 먼저 작성한다. 또한 MCP SDK 등 외부 라이브러리 API 코드 작성이 포함된 Implementer 호출 시, Planner 체크리스트 1번 항목으로 "Context7 resolve-library-id + query-docs 선행 호출"을 명시한다.

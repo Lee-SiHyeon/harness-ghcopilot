@@ -8,29 +8,22 @@ const { sanitizeForPrompt, wrapUntrusted } = require('./env-utils');
 // ── 과거 회고 패턴 로드 ───────────────────────────────────────────
 function loadRetrospectiveLearnings() {
   try {
-    const logsDir = path.resolve(__dirname, '../../../logs');
+    const { getPatterns, getRecentRetro } = require('../../../mcp-server/state-lib/retro.js');
     let block = '';
 
     // retro-patterns.json에서 반복 패턴 읽기
-    const patternsPath = path.join(logsDir, 'retro-patterns.json');
-    if (fs.existsSync(patternsPath)) {
-      const patterns = JSON.parse(fs.readFileSync(patternsPath, 'utf8'));
-      if (patterns.length) {
-        const patternText = patterns.map(p => `- ${p.name}: ${p.count}회 / 개선: ${p.fix}`).join('\n');
-        block += '\n반복 패턴:\n' + wrapUntrusted('retro', sanitizeForPrompt(patternText, 500)) + '\n';
-      }
+    const patterns = getPatterns();
+    if (Array.isArray(patterns) && patterns.length) {
+      const patternText = patterns.map(p => `- ${p.name}: ${p.count}회 / 개선: ${p.fix}`).join('\n');
+      block += '\n반복 패턴:\n' + wrapUntrusted('retro', sanitizeForPrompt(patternText, 500)) + '\n';
     }
 
     // retro.jsonl 최근 3개 nextImprovement
-    const jsonlPath = path.join(logsDir, 'retro.jsonl');
-    if (fs.existsSync(jsonlPath)) {
-      const records = fs.readFileSync(jsonlPath, 'utf8').trim().split('\n')
-        .filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } })
-        .filter(r => r && r.nextImprovement && !r.nextImprovement.includes('기입 필요'));
-      const recent = records.slice(-3).map(r => `- ${r.date}: ${r.nextImprovement}`).join('\n');
-      if (recent) {
-        block += '\n최근 개선 목표:\n' + wrapUntrusted('retro', sanitizeForPrompt(recent, 400)) + '\n';
-      }
+    const retroRecords = getRecentRetro(10)
+      .filter(r => r && r.nextImprovement && !r.nextImprovement.includes('기입 필요'));
+    const recent = retroRecords.slice(0, 3).map(r => `- ${r.date}: ${r.nextImprovement}`).join('\n');
+    if (recent) {
+      block += '\n최근 개선 목표:\n' + wrapUntrusted('retro', sanitizeForPrompt(recent, 400)) + '\n';
     }
 
     if (!block) return null;
@@ -41,9 +34,8 @@ function loadRetrospectiveLearnings() {
 // ── 미해결 actionItems 로드 ────────────────────────────────────────
 function loadActionItems() {
   try {
-    const draftPath = path.join(process.cwd(), '.github', 'logs', 'retrospective-draft.json');
-    const raw = JSON.parse(fs.readFileSync(draftPath, 'utf8'));
-    const items = (raw.actionItems || []).filter(item =>
+    const { getActionItems } = require('../../../mcp-server/state-lib/actionitems.js');
+    const items = getActionItems().filter(item =>
       item && typeof item.message === 'string'
     );
     if (items.length === 0) return null;
@@ -73,12 +65,10 @@ function loadActionItems() {
 // ── actionItems 건수 조회 (📋 템플릿 동적 구성용) ─────────────────
 function loadActionItemsCount() {
   try {
-    const draftPath = path.join(process.cwd(), '.github', 'logs', 'retrospective-draft.json');
-    const raw = JSON.parse(fs.readFileSync(draftPath, 'utf8'));
-    const items = (raw.actionItems || []).filter(item =>
+    const { getActionItems } = require('../../../mcp-server/state-lib/actionitems.js');
+    return getActionItems().filter(item =>
       item && typeof item.message === 'string'
-    );
-    return items.length;
+    ).length;
   } catch { return 0; }
 }
 

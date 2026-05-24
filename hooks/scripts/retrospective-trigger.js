@@ -215,12 +215,10 @@ if (require.main === module) { (function main() {
   // ── 기존 draft.actionItems 보존 + retro.jsonl → retroImprovement 변환 ─────
   let existingActionItems = [];
   try {
-    const existingDraft = JSON.parse(fs.readFileSync(DRAFT_PATH, 'utf8'));
-    if (Array.isArray(existingDraft.actionItems)) {
-      existingActionItems = existingDraft.actionItems.filter(
-        item => item && typeof item.message === 'string'
-      );
-    }
+    const { getActionItems } = require('../../mcp-server/state-lib/actionitems.js');
+    existingActionItems = getActionItems().filter(
+      item => item && typeof item.message === 'string'
+    );
   } catch (_) {}
 
   // 마지막 retro 레코드 1개만 확인 (과거 전체 retro.jsonl 재처리 금지)
@@ -262,7 +260,10 @@ if (require.main === module) { (function main() {
     actionItems: mergedActionItems,
   };
 
-  safeWrite(DRAFT_PATH, draft);
+  try {
+    const { updateDraft } = require('../../mcp-server/state-lib/actionitems.js');
+    updateDraft(draft);
+  } catch (_) { safeWrite(DRAFT_PATH, draft); }
 
   // ── retro.jsonl 자동 append + markdown 재생성 ────────────────────
 
@@ -306,7 +307,8 @@ if (require.main === module) { (function main() {
         sessionId:       sessionId || process.env.SESSION_ID || '',
       };
       fs.mkdirSync(path.dirname(JSONL_PATH), { recursive: true });
-      fs.appendFileSync(JSONL_PATH, JSON.stringify(record) + '\n', 'utf8');
+      const { appendRetro } = require('../../mcp-server/state-lib/retro.js');
+      appendRetro(record);
 
       // markdown 재생성
       try {

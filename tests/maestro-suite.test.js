@@ -721,7 +721,7 @@ tc('tc-060', 'retrospective-trigger / auto-tc-integration', 'auto-tc-pending.jso
 tc('tc-061', 'retrospective-trigger / auto-history', 'retro.jsonl 자동 append 코드 존재', () => {
   const src = readSrc('retrospective-trigger.js');
   if (!src.includes('retro.jsonl')) throw new Error('retro.jsonl 참조 없음');
-  if (!src.includes('appendFileSync')) throw new Error('appendFileSync 호출 없음');
+  if (!src.includes('appendRetro') && !src.includes('appendFileSync')) throw new Error('retro append 호출 없음');
   if (!src.includes('selfCritique')) throw new Error('selfCritique 필드 없음');
 });
 
