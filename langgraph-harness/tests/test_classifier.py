@@ -117,6 +117,52 @@ class TestSupervisorNode(unittest.TestCase):
         self.assertEqual(result.get("tester_retries"), 0)
         self.assertEqual(result.get("reviewer_retries"), 0)
 
+    def test_populates_max_retries_from_pipelines_json(self) -> None:
+        """Supervisor must seed max retries from pipelines.json (the SSOT)."""
+        state = {"task": "뭐 해줘"}
+        result = supervisor_node(state)
+        self.assertIsInstance(result.get("tester_max_retries"), int)
+        self.assertIsInstance(result.get("reviewer_max_retries"), int)
+        self.assertGreaterEqual(result["tester_max_retries"], 1)
+        self.assertGreaterEqual(result["reviewer_max_retries"], 1)
+
+    def test_honours_pinned_pipeline_id(self) -> None:
+        """When state already pins a pipeline_id, supervisor must not reclassify."""
+        # "만들어" would normally classify as A; pin to B and verify it sticks.
+        state = {"task": "만들어 주세요", "pipeline_id": "B"}
+        result = supervisor_node(state)
+        self.assertEqual(result["pipeline_id"], "B")
+        self.assertIn("Investigator", result["pipeline_steps"])
+
+
+class TestShouldRetryStateFallback(unittest.TestCase):
+    """should_retry_* must fall back to state['*_max_retries'] when arg is None."""
+
+    def test_tester_uses_state_max_retries_when_arg_none(self) -> None:
+        state = {
+            "tester_passed": False,
+            "tester_retries": 4,
+            "tester_max_retries": 5,
+        }
+        # retries (4) < max (5) → loop back to tester
+        self.assertEqual(should_retry_tester(state), "tester")
+
+    def test_tester_state_limit_hit_returns_reviewer(self) -> None:
+        state = {
+            "tester_passed": False,
+            "tester_retries": 5,
+            "tester_max_retries": 5,
+        }
+        self.assertEqual(should_retry_tester(state), "reviewer")
+
+    def test_reviewer_uses_state_max_retries_when_arg_none(self) -> None:
+        state = {
+            "reviewer_passed": False,
+            "reviewer_retries": 1,
+            "reviewer_max_retries": 2,
+        }
+        self.assertEqual(should_retry_reviewer(state), "reviewer")
+
 
 if __name__ == "__main__":
     unittest.main()

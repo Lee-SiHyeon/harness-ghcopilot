@@ -66,9 +66,26 @@ def classify_pipeline(
 
 
 def supervisor_node(state: HarnessState) -> HarnessState:
-    """Classify the incoming task and populate pipeline routing fields."""
+    """Classify the incoming task and populate pipeline routing fields.
+
+    Honours an existing ``state['pipeline_id']`` when set (the builder may
+    pin the pipeline at compile time); otherwise classifies from ``task``.
+    Always reads ``maxTesterRetries`` / ``maxReviewerRetries`` from
+    ``pipelines.json`` so the SSOT is the JSON file, not a hard-coded default.
+    """
+    data = _load_pipelines()
     task = state.get("task", "")
-    pipeline_id, steps = classify_pipeline(task)
+    pinned_id = state.get("pipeline_id")
+    if pinned_id:
+        steps = []
+        for p in data.get("pipelines", []):
+            if p.get("id") == pinned_id:
+                steps = p.get("steps", [])
+                break
+        pipeline_id = pinned_id
+    else:
+        pipeline_id, steps = classify_pipeline(task, data)
+
     return {
         **state,
         "pipeline_id": pipeline_id,
@@ -76,6 +93,12 @@ def supervisor_node(state: HarnessState) -> HarnessState:
         "current_step": steps[0] if steps else "",
         "tester_retries": state.get("tester_retries", 0),
         "reviewer_retries": state.get("reviewer_retries", 0),
+        "tester_max_retries": state.get(
+            "tester_max_retries", data.get("maxTesterRetries", 3)
+        ),
+        "reviewer_max_retries": state.get(
+            "reviewer_max_retries", data.get("maxReviewerRetries", 3)
+        ),
         "tester_passed": state.get("tester_passed", False),
         "reviewer_passed": state.get("reviewer_passed", False),
         "release_done": state.get("release_done", False),
@@ -87,11 +110,18 @@ def supervisor_node(state: HarnessState) -> HarnessState:
 
 def should_retry_tester(
     state: HarnessState,
-    max_retries: int = 3,
+    max_retries: int | None = None,
 ) -> str:
-    """Conditional edge: retry Tester or proceed to Reviewer."""
+    """Conditional edge: retry Tester or proceed to Reviewer.
+
+    When ``max_retries`` is ``None``, falls back to
+    ``state['tester_max_retries']`` (set by the supervisor from pipelines.json),
+    then to ``3``.
+    """
     if state.get("tester_passed"):
         return "reviewer"
+    if max_retries is None:
+        max_retries = state.get("tester_max_retries", 3)
     retries = state.get("tester_retries", 0)
     if retries < max_retries:
         return "tester"
@@ -100,11 +130,16 @@ def should_retry_tester(
 
 def should_retry_reviewer(
     state: HarnessState,
-    max_retries: int = 3,
+    max_retries: int | None = None,
 ) -> str:
-    """Conditional edge: retry Reviewer or proceed to Critic."""
+    """Conditional edge: retry Reviewer or proceed to Critic.
+
+    Same fallback semantics as :func:`should_retry_tester`.
+    """
     if state.get("reviewer_passed"):
         return "critic"
+    if max_retries is None:
+        max_retries = state.get("reviewer_max_retries", 3)
     retries = state.get("reviewer_retries", 0)
     if retries < max_retries:
         return "reviewer"

@@ -15,6 +15,8 @@ class HarnessState(TypedDict, total=False):
     agent_output: str
     tester_retries: int
     reviewer_retries: int
+    tester_max_retries: int
+    reviewer_max_retries: int
     tester_passed: bool
     reviewer_passed: bool
     release_done: bool
