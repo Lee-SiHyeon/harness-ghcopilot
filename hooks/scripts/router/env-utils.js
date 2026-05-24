@@ -40,10 +40,17 @@ function sanitizeForPrompt(value, maxLen = 200) {
     .slice(0, maxLen);
 }
 
+function longestBacktickRun(value) {
+  const matches = String(value).match(/`+/g) || [];
+  return matches.reduce((max, run) => Math.max(max, run.length), 0);
+}
+
 // 외부(신뢰 불가) 텍스트를 untrusted 펜스로 격리
 function wrapUntrusted(label, content) {
   if (!content) return '';
-  return `\`\`\`untrusted-${label}\n${content}\n\`\`\``;
+  const text = String(content);
+  const fence = '`'.repeat(Math.max(3, longestBacktickRun(text) + 1));
+  return `${fence}untrusted-${label}\n${text}\n${fence}`;
 }
 
 module.exports = { loadEnv, sanitizeForPrompt, wrapUntrusted };

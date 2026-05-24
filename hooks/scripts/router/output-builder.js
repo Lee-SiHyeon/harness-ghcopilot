@@ -2,6 +2,39 @@
 
 const { loadSavedTodos, loadPrecompactState, formatResumeBlock } = require('./state-loaders');
 const { isScoutLoopPrompt, SCOUT_RALPH_PROTOCOL_BLOCK } = require('./classifier');
+const { wrapUntrusted } = require('./env-utils');
+
+function formatPipeline(pipeline) {
+  return Array.isArray(pipeline) && pipeline.length > 0
+    ? pipeline.join(' → ')
+    : '미정';
+}
+
+function buildDisclosureLines(analysis) {
+  return [
+    `🎯 **작업 유형**: ${analysis.intent}`,
+    `📋 **파이프라인**: ${formatPipeline(analysis.pipeline)}`,
+  ];
+}
+
+function buildDisclosureHeader(analysis) {
+  return [
+    '## [⚠️ 필수 — 응답 첫 줄 출력 의무]',
+    '아래 블록을 **응답의 첫 줄로** 반드시 출력한다. 단순 질문·짧은 답변도 예외 없음.',
+    '```',
+    ...buildDisclosureLines(analysis),
+    '```',
+    '이 블록 없이 내용을 출력하거나 에이전트를 호출하면 규칙 위반이다.',
+  ].join('\n');
+}
+
+function buildUserMessage(analysis, parts) {
+  return [buildDisclosureHeader(analysis), ...parts].filter(Boolean).join('\n\n');
+}
+
+function buildOriginalRequestBlock(prompt) {
+  return ['## [원본 요청]', wrapUntrusted('user-request', prompt)].join('\n');
+}
 
 // ══════════════════════════════════════════════════════════════════
 // 출력 빌더
@@ -21,6 +54,7 @@ function buildOutput(analysis, usedLLM, ctx) {
     return {
       continue: true,
       hookSpecificOutput: `💬 [Maestro] \`${intent}\` (${source} | 복잡도: ${routingComplexity}/10) — ${reason}`,
+      modifiedParameters: { userMessage: buildUserMessage(analysis, [buildOriginalRequestBlock(prompt)]) },
     };
   }
 
@@ -36,6 +70,8 @@ function buildOutput(analysis, usedLLM, ctx) {
       continue: false,
       decision: 'ask',
       reason: [
+        ...buildDisclosureLines(analysis),
+        '',
         `⚠️ **고위험 작업 감지** (복잡도: ${routingComplexity}/10)`,
         `- 파이프라인: ${pipeline.join(' → ')}`,
         `- 범위: ${scope}${secNote}`,
@@ -84,11 +120,11 @@ function buildOutput(analysis, usedLLM, ctx) {
     if (resumeBlock) parts.push(resumeBlock);
     if (savedTodos) parts.push(savedTodos);
     if (todoBlock) parts.push(todoBlock);
-    parts.push('## [원본 요청]', prompt);
+    parts.push(buildOriginalRequestBlock(prompt));
     return {
       continue: true,
       hookSpecificOutput: statusLine,
-      modifiedParameters: { userMessage: parts.join('\n\n') },
+      modifiedParameters: { userMessage: buildUserMessage(analysis, parts) },
     };
   }
 
@@ -111,13 +147,13 @@ function buildOutput(analysis, usedLLM, ctx) {
   if (resumeBlock) parts.push(resumeBlock);
   if (savedTodos) parts.push(savedTodos);
   if (todoBlock) parts.push(todoBlock);
-  parts.push('## [원본 요청]', prompt);
+  parts.push(buildOriginalRequestBlock(prompt));
 
   return {
     continue: true,
     hookSpecificOutput: statusLine,
-    modifiedParameters: { userMessage: parts.join('\n\n') },
+    modifiedParameters: { userMessage: buildUserMessage(analysis, parts) },
   };
 }
 
-module.exports = { buildOutput };
+module.exports = { buildOutput, buildDisclosureHeader };

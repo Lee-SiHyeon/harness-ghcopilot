@@ -256,3 +256,16 @@
 
 **자기비평**: Implementer를 항목별로 5회 순차 호출했는데 일부 독립 항목(HIGH-6+HIGH-3 등)은 병렬 호출 가능했다. Reviewer가 Warning 2건을 발견했지만 Critical 없이 승인까지 1-pass로 끝났다.
 **다음 번 개선**: 독립적인 파일 수정은 Implementer 병렬 호출로 시간 단축. 보안 패치는 항목별 TC를 새로 추가하여 명시적 회귀 커버리지 확보.
+
+---
+
+## 2026-05-24 — Maestro 헤더 누락 훅 수정 (fix: Investigator→Implementer×3→Tester×3→Reviewer×3→Critic→Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Investigator ✅ → Implementer ✅(헤더 주입+tc-141~144) → Tester ✅(146/146) → Reviewer ✅(Warning) → Implementer ✅(SUBAGENT_NAME+wrapUntrusted+tc-145~146) → Tester ✅(148/148) → Reviewer ❌(Critical 2건) → Implementer ✅(adaptive fence+SubagentStart parent-context+tc-147~148) → Tester ✅(150/150) → Reviewer ✅(승인) |
+| 건너뜀 | 없음 |
+| 반복 이슈 | 첫 응답에서 Maestro 헤더를 또 생략했고, UserPromptSubmit만 보고 SubagentStart 재주입 경로와 fence 탈출 케이스를 1차 수정에서 놓침 |
+
+**자기비평**: "헤더를 출력하라"는 지시와 실제 assistant 본문 보장은 다르다는 점을 충분히 분리하지 못했고, 사용자 지적 직전 응답에서도 파이프라인 헤더를 생략해 같은 실수를 반복했다.
+**다음 번 개선**: UserPromptSubmit 계열 변경은 반드시 실제 실행 기반 TC로 검증하고, 원본 프롬프트를 다시 주입하는 SubagentStart/PostToolUse 경로까지 함께 점검한다.

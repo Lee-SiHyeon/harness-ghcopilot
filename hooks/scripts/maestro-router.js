@@ -12,6 +12,7 @@
  * 환경변수 (훅 실행 시):
  *   USER_PROMPT         사용자 입력 프롬프트
  *   AGENT_NAME          현재 에이전트 이름
+ *   SUBAGENT_NAME       실제 서브에이전트 내부 프롬프트일 때 설정
  *
  * .env (프로젝트 루트):
  *   OPENCODE_API_KEY    OpenCode Go API 키
@@ -40,13 +41,25 @@ function tryAudit(obj) { if (!audit) return; try { audit.appendAudit(obj); } cat
 const raw       = process.env.USER_PROMPT || '';
 const prompt    = raw.trim();
 const agentName = (process.env.AGENT_NAME || '').trim();
+const subagentName = (process.env.SUBAGENT_NAME || '').trim();
 const API_KEY   = process.env.OPENCODE_API_KEY  || '';
 const API_BASE  = process.env.OPENCODE_API_BASE  || 'https://opencode.ai/zen/go/v1';
 const MODEL     = process.env.OPENCODE_HOOK_MODEL || 'deepseek-v4-flash';
 
+if (!prompt) { out({ continue: true }); process.exit(0); }
+
+if (subagentName) {
+  const promptSummary = audit ? audit.summarize(prompt, 100) : prompt.slice(0, 100);
+  tryAudit({ event: 'maestro_subagent_passthrough', source: 'UserPromptSubmit', agentName, subagentName, promptSummary });
+  out({ continue: true });
+  process.exit(0);
+}
+
 // ── Maestro: LLM 분류 스킵, todo만 주입 ──────────────────────────
 // agentName === '' : modeInstructions 기반 세션 (VS Code Copilot 모드)
 // agentName === 'Maestro' : @Maestro 에이전트 직접 선택
+// KNOWN_SUBAGENTS는 추가 Maestro 컨텍스트 주입 여부만 가른다.
+// 서브에이전트 이름으로 선택된 top-level 세션은 SUBAGENT_NAME이 없으므로 아래 async 경로에서 헤더 지시를 받는다.
 const KNOWN_SUBAGENTS = new Set(['Planner','Implementer','Tester','Reviewer','Documenter','Investigator','Release','Critic','Scout','Context7 Docs Agent']);
 const isMaestroContext = !KNOWN_SUBAGENTS.has(agentName);
 if (isMaestroContext) {
@@ -71,18 +84,17 @@ if (isMaestroContext) {
   }
 
   const actionCount = loadActionItemsCount();
-  const isScoutLoop = isScoutLoopPrompt(prompt);
-  const pipelineLine = isScoutLoop
-    ? '📋 **파이프라인**: Scout → Planner → Implementer → Tester → Reviewer → Critic → Release'
-    : actionCount >= 1
-    ? `📋 **파이프라인**: [자가비평 ${actionCount}건 처리] → [에이전트1] → [에이전트2] → ...`
-    : '📋 **파이프라인**: [에이전트1] → [에이전트2] → ...';
+  const analysis = classifyWithRegex(prompt);
+  const isScoutLoop = analysis.intent === 'scout_loop' || isScoutLoopPrompt(prompt);
+  const disclosurePipeline = actionCount >= 1
+    ? [`자가비평 ${actionCount}건 처리`, ...analysis.pipeline]
+    : analysis.pipeline;
   parts.push(
     '## [⚠️ 필수 — 응답 첫 줄 출력 의무]',
     '아래 블록을 **응답의 첫 줄로** 반드시 출력한다. 단순 질문·짧은 답변도 예외 없음.',
     '```',
-    '🎯 **작업 유형**: [분류 결과]',
-    pipelineLine,
+    `🎯 **작업 유형**: ${analysis.intent}`,
+    `📋 **파이프라인**: ${disclosurePipeline.join(' → ')}`,
     '```',
     '이 블록 없이 내용을 출력하거나 에이전트를 호출하면 규칙 위반이다.',
   );
@@ -119,9 +131,9 @@ if (isMaestroContext) {
       );
     }
   } catch (_) {}
-  parts.push('', '## [원본 요청]', prompt);
+  parts.push('', '## [원본 요청]', wrapUntrusted('user-request', prompt));
   const promptSummary = audit ? audit.summarize(prompt, 100) : prompt.slice(0, 100);
-  tryAudit({ event: 'maestro_passthrough', source: 'UserPromptSubmit', agentName, promptSummary });
+  tryAudit({ event: 'maestro_passthrough', source: 'UserPromptSubmit', agentName, intent: analysis.intent, pipeline: analysis.pipeline, complexity: analysis.complexity, promptSummary });
   out({ continue: true, modifiedParameters: { userMessage: parts.join('\n') } });
   process.exit(0);
 }
@@ -130,8 +142,6 @@ if (isMaestroContext) {
 // 메인
 // ══════════════════════════════════════════════════════════════════
 (async () => {
-  if (!prompt) { out({ continue: true }); return; }
-
   let analysis = null;
   let usedLLM  = false;
 

@@ -21,6 +21,8 @@
 const fs   = require('fs');
 const path = require('path');
 
+const { wrapUntrusted } = require('./router/env-utils');
+
 let audit = null;
 try { audit = require('./audit-logger'); } catch (_) {}
 function trySubagentFlow(obj) { if (!audit) return; try { audit.appendSubagentFlow(obj); } catch (_) {} }
@@ -171,8 +173,9 @@ const DEFAULT_GUIDE = [
 
   // 3. 원본 요청 컨텍스트 블록 (민감정보 redaction 적용)
   const safePrompt = audit ? audit.summarize(prompt, 500) : (prompt || '').slice(0, 500);
+  const promptSuffix = (prompt || '').length > 500 ? '\n...(생략)' : '';
   const contextBlock = safePrompt
-    ? `\n\n## [상위 컨텍스트]\n${safePrompt}${(prompt || '').length > 500 ? '\n...(생략)' : ''}`
+    ? `\n\n## [상위 컨텍스트]\n${wrapUntrusted('parent-context', `${safePrompt}${promptSuffix}`)}`
     : '';
 
   // 4. Subagent flow / audit 기록
