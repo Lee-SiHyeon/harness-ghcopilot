@@ -11,6 +11,19 @@
 
 ---
 
+## 2026-05-24 — TC 149-156 추가 + file-guard isRetroHistory 예외 (implement: Planner->Implementer->Tester->Implementer->Tester->Reviewer->Critic->Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Planner(TC설계) -> Implementer(1차, TC8개+file-guard) -> Tester(158/158 FAIL:4) -> Implementer(2차, regex조정+isRetroHistory) -> Tester(158/158 PASS) -> Reviewer(승인) |
+| 건너뜀 | 없음 |
+| 반복 이슈 | 이전 파이프라인에서 TC 없이 Tester 호출 + Maestro 직접 테스트 실행 → 사용자 지적으로 수정. 이번에는 Planner-Tester 에이전트 경유로 올바르게 실행. |
+
+**자기비평**: 신규 규칙 3개를 추가하면서 해당 규칙을 검증하는 TC를 추가하지 않았다. Planner 없이 Tester만 호출하고 Maestro가 직접 터미널에서 테스트를 돌린 것은 파이프라인 전체를 무력화하는 행동이었다.
+**다음 번 개선**: maestro.agent.md나 hooks 변경이 있는 implement 파이프라인에서는 Planner 호출이 필수다. Planner 없이 TC 설계 없이 Implementer를 호출하는 것은 허용하지 않는다.
+
+---
+
 ## 2026-05-24 — Critic H3 기준 수정 (maestro.agent.md Tester 필수 예외) (fix: Tester->Implementer->Reviewer->Implementer->Tester->Reviewer->Critic->Release)
 
 | 항목 | 내용 |

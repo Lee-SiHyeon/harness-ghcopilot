@@ -168,8 +168,10 @@ try {
     // Maestro 직접 구현 차단 (subagent 컨텍스트가 아닌 경우)
     // Maestro의 회고/로그 직접 기록은 허용 (.github/logs/ 경로)
     if (isMaestroAgent(agentName) && !subagentName) {
-      const isLogPath = p.replace(/\\/g, '/').includes('/.github/logs/');
-      if (!isLogPath) {
+      const normPFwd = p.replace(/\\/g, '/');
+      const isLogPath = normPFwd.includes('/.github/logs/');
+      const isRetroHistory = normPFwd.includes('retrospective-history.md');
+      if (!isLogPath || isRetroHistory) {
         denyItems.push(`🎼 Maestro 직접 구현 차단: Implementer에게 위임이 필요합니다 (${relPath})`);
         tryAudit({ event: 'file_guard', decision: 'deny', tool: toolName, agent: agentName, reason: 'maestro_direct_impl', path: relPath });
         continue;
