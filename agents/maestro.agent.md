@@ -80,6 +80,8 @@ handoffs:
 - 여러 파일의 독립적인 Reviewer 호출
 - 서로 의존하지 않는 모듈의 병렬 구현 (Implementer 여러 번)
 
+> ⚠️ **병렬 의무**: 의존성이 없는 독립 작업이 2개 이상이면 Implementer를 순차로 호출하지 않고 **반드시 병렬로 호출**한다. 병렬 가능한데 순차 호출하는 것은 파이프라인 효율 위반으로 간주한다.
+
 ### 순차 실행 (반드시 이 순서 유지)
 ```
 Planner 완료 → Implementer 호출 (계획서 전문 전달 필수)
@@ -97,6 +99,10 @@ Critic PASS → Release 호출 (커밋 전용 모드: 변경 파일 목록 + 커
 ### 반복 종료 조건
 - Reviewer가 "승인" 또는 "문제 없음" 반환 시 파이프라인 종료
 - 최대 3회 Reviewer ↔ Implementer 순환 후 사용자에게 판단 위임
+
+### Implementer 2차 이상 호출 시 Reviewer 재확인 의무
+- Implementer가 2회 이상 호출된 경우 (Warning 수정, 리뷰 피드백 반영 등) **반드시 Reviewer를 재호출**하여 수정 범위를 재확인한다.
+- "Tester PASS = Reviewer 생략" 논리는 허용되지 않는다.
 
 ---
 
@@ -136,6 +142,8 @@ Critic PASS → Release 호출 (커밋 전용 모드: 변경 파일 목록 + 커
 ```
 [Planner 계획서 전문]
 위 계획을 그대로 구현해줘. Context7로 라이브러리 API 반드시 확인 후 작성.
+[리스크 항목]
+{planner_risks} ← Planner가 명시한 리스크·주의사항을 그대로 전달
 ```
 
 ### Reviewer 호출 시
@@ -201,6 +209,8 @@ Scout read-only 조사로 시작한 뒤 HIGH 후보를 선별하고, 최대 3회
 ✅ [에이전트명] 완료
 ❌ [에이전트명] 실패 → [대안]
 ```
+
+> ⚠️ **todo 생성 규칙**: implement/fix 파이프라인에서 todo 항목 생성 시 `Tester 실행`을 반드시 **별도 항목**으로 분리한다. Implementer와 Tester를 하나의 항목으로 묶지 않는다.
 
 > ⚠️ **선언-실행 일치 의무**: 📋에 선언한 에이전트를 빠짐없이 해당 순서대로 실행해야 한다. 1줄 수정이라도 Implementer를 경유해야 하며, Maestro가 직접 코드를 수정·편집하는 것은 허용되지 않는다.
 

@@ -7,7 +7,8 @@
 - **Reviewer·Critic 건너뜀**: 1회 / 마지막: 2026-05-24 / 개선: 모든 fix 파이프라인에서 Tester 후 반드시 Reviewer → Critic 순서 준수
 - **Maestro 직접 구현 + Critic 허위 보고**: 3회 / 마지막: 2026-05-24 / 개선: file-guard.js deny 훅으로 하드 차단 완료 (회고 기록 후 즉시 fix 루프 실행)
 - **"다음 번 개선" 기록 후 방치**: 1회 / 마지막: 2026-05-24 / 개선: retro-improvement-parser.js로 자동 actionItem 변환 완료
-- **Warning 수정 후 Reviewer 2차 재확인 생략**: 1회 / 마지막: 2026-05-24 / 개선: Implementer 2차 이후 반드시 Reviewer 재확인 → 이번 세션에서 Tester PASS로 대체 (개선 필요)
+- **Warning 수정 후 Reviewer 2차 재확인 생략**: 1회 / 마지막: 2026-05-24 / 개선: Implementer 2차 이상 → Reviewer 재확인 필수 규칙 maestro.agent.md에 추가 완료 (2026-05-24)
+- **독립 작업 병렬 Implementer 미적용**: 2회 / 마지막: 2026-05-30 / 개선: 독립 작업 ≥2개 시 병렬 호출 필수 규칙 maestro.agent.md에 추가 완료 (2026-05-24)
 
 ---
 
