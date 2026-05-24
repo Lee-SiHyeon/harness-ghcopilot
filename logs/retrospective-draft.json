@@ -1,0 +1,26 @@
+{
+  "sessionId": "060077ae-f5f7-4a86-8a7a-1a0d4a4917eb",
+  "ts": "2026-05-24T02:59:00.000Z",
+  "terminalAgent": "Maestro",
+  "intent": "review",
+  "complexity": 4,
+  "plannedPipeline": [
+    "Investigator",
+    "Reviewer",
+    "Tester",
+    "Critic",
+    "Release"
+  ],
+  "executedAgents": [
+    "Investigator",
+    "Reviewer",
+    "Tester",
+    "Reviewer",
+    "Critic"
+  ],
+  "skippedAgents": [
+    "Release"
+  ],
+  "durationMs": null,
+  "actionItems": []
+}
