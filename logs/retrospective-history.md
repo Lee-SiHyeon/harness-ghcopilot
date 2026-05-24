@@ -4,7 +4,20 @@
 - **Tester 건너뜀**: 2회 / 마지막: 2026-05-24 / 개선: implement·fix 파이프라인에서 Reviewer 호출 전 Tester 호출 의무 (사용자 지적 시점 1회, 자동수정 시점 1회)
 - **Retrospective 단계 누락**: 4회 / 마지막: 2026-05-24 / 개선: Critic H2 FAIL 발생 시 Release 전 회고 기록을 즉시 수행하고 재호출
 - **Reviewer·Critic 건너뜀**: 1회 / 마지막: 2026-05-24 / 개선: 모든 fix 파이프라인에서 Tester 후 반드시 Reviewer → Critic 순서 준수
-- **Maestro 직접 구현 + Critic 허위 보고**: 3회 / 마지막: 2026-05-24 / 개선: Maestro는 파일 수정 도구를 절대 직접 호출하지 않으며, Critic 호출 시 실제 실행 에이전트만 ✅로 표기
+- **Maestro 직접 구현 + Critic 허위 보고**: 3회 / 마지막: 2026-05-24 / 개선: file-guard.js deny 훅으로 하드 차단 완료 (회고 기록 후 즉시 fix 루프 실행)
+
+---
+
+## 2026-05-24 — Maestro 직접구현 deny 훅 전환 (feat: Planner→Implementer×2→Tester×3→Reviewer→Critic→Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Planner ✅ → Implementer ✅ → Tester ✅ (112/112) → Reviewer ✅ → Implementer ✅ (W2 수정) → Tester ✅ → Implementer ✅ (logs 예외) → Tester ✅ (113/113) → Critic ✅ |
+| 건너뜀 | 없음 |
+| 반복 이슈 | Planner 리스크 항목(logs/ 예외) Implementer 1차 구현에서 누락 → 2차 Implementer 추가 |
+
+**자기비평**: 회고에 "다음 번에 고치겠다" 기록만 남기고 즉시 fix 루프를 돌리지 않는 패턴이 반복됐다. 이번에는 사용자 지적 즉시 Planner부터 전체 파이프라인을 실행해 실제로 훅을 강제하는 코드를 구현했다. 다만 Implementer 1차 구현에서 Planner의 logs/ 예외 리스크 항목이 누락돼 3차 Implementer 호출이 필요했다.
+**다음 번 개선**: Planner 계획서의 리스크 항목은 Implementer 호출 프롬프트에 명시적으로 포함시켜 누락을 방지한다.
 
 ---
 

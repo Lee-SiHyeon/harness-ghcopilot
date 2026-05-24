@@ -163,10 +163,14 @@ try {
       continue;
     }
     // Maestro 직접 구현 차단 (subagent 컨텍스트가 아닌 경우)
+    // Maestro의 회고/로그 직접 기록은 허용 (.github/logs/ 경로)
     if (isMaestroAgent(agentName) && !subagentName) {
-      askItems.push(`🎼 Maestro 직접 구현 차단: Implementer에게 위임이 필요합니다 (${relPath})`);
-      tryAudit({ event: 'file_guard', decision: 'ask', tool: toolName, agent: agentName, reason: 'maestro_direct_impl', path: relPath });
-      continue;
+      const isLogPath = p.replace(/\\/g, '/').includes('/.github/logs/');
+      if (!isLogPath) {
+        denyItems.push(`🎼 Maestro 직접 구현 차단: Implementer에게 위임이 필요합니다 (${relPath})`);
+        tryAudit({ event: 'file_guard', decision: 'deny', tool: toolName, agent: agentName, reason: 'maestro_direct_impl', path: relPath });
+        continue;
+      }
     }
     if (isMaestroAgentPath(p)) {
       if (isMaestroAgent(agentName) && !hasAgentIdentityConflict()) {

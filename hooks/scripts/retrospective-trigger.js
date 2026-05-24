@@ -100,6 +100,23 @@ function parseJsonLines(content) {
     ts:      new Date().toISOString(),
   }));
 
+  // maestro_direct_impl 위반 자동 기록 (최근 10분 이내 audit 항목)
+  const MAESTRO_IMPL_WINDOW = 600000; // 10분 (ms)
+  const now = Date.now();
+  const maestroViolations = auditLines.filter(l =>
+    l.reason === 'maestro_direct_impl' &&
+    l.ts && (now - new Date(l.ts).getTime()) <= MAESTRO_IMPL_WINDOW &&
+    (!sessionId || l.sessionId === sessionId)
+  );
+  for (const v of maestroViolations) {
+    actionItems.push({
+      source:  'maestroDirectImpl',
+      agent:   v.agent || 'Maestro',
+      message: `Maestro가 직접 파일 수정 시도 — Implementer 위임 필수 (${v.path || '?'})`,
+      ts:      v.ts || new Date().toISOString(),
+    });
+  }
+
   const draft = {
     sessionId,
     ts: new Date().toISOString(),

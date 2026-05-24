@@ -1003,4 +1003,52 @@ tc('tc-110', 'model-guard / agent 파일 선언 모델은 허용', 'loadAgentMod
   if (!src.includes('agentModels.includes')) throw new Error('agent 모델 리스트 허용 로직 없음');
 });
 
+// Group: file-guard / Maestro deny
+tc('tc-111', 'file-guard / Maestro deny', 'AGENT_NAME=Maestro 시 deny 출력 확인', () => {
+  const guardPath = path.join(HOOKS, 'file-guard.js');
+  const env = {
+    ...process.env,
+    TOOL_NAME: 'create_file',
+    AGENT_NAME: 'Maestro',
+    SUBAGENT_NAME: '',
+    TOOL_INPUT: JSON.stringify({ path: path.resolve('.github/scripts/test.js') }),
+  };
+  const raw = execSync(`node "${guardPath}"`, { env, stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+  const result = JSON.parse(raw);
+  if (result.continue !== false) throw new Error(`continue should be false, got: ${result.continue}`);
+  if (result.decision !== 'deny') throw new Error(`decision should be 'deny', got: ${result.decision}`);
+});
+
+// Group: file-guard / Implementer allow
+tc('tc-112', 'file-guard / Implementer allow', 'AGENT_NAME=Implementer 시 차단 없음 확인', () => {
+  const guardPath = path.join(HOOKS, 'file-guard.js');
+  const env = {
+    ...process.env,
+    TOOL_NAME: 'create_file',
+    AGENT_NAME: 'Implementer',
+    SUBAGENT_NAME: '',
+    TOOL_INPUT: JSON.stringify({ path: path.resolve('.github/scripts/test.js') }),
+  };
+  const raw = execSync(`node "${guardPath}"`, { env, stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+  const result = JSON.parse(raw);
+  if (result.decision === 'deny') throw new Error(`Implementer should not be denied, got: ${JSON.stringify(result)}`);
+  if (result.continue === false && result.decision === 'deny') throw new Error('Implementer blocked by deny');
+});
+
+// Group: file-guard / Maestro logs allow
+tc('tc-113', 'file-guard / Maestro logs allow', 'AGENT_NAME=Maestro + .github/logs/ 경로 → deny 아님(continue: true) 검증', () => {
+  const guardPath = path.join(HOOKS, 'file-guard.js');
+  const env = {
+    ...process.env,
+    TOOL_NAME: 'create_file',
+    AGENT_NAME: 'Maestro',
+    SUBAGENT_NAME: '',
+    TOOL_INPUT: JSON.stringify({ path: path.resolve('.github/logs/retrospective-history.md') }),
+  };
+  const raw = execSync(`node "${guardPath}"`, { env, stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+  const result = JSON.parse(raw);
+  if (result.continue === false && result.decision === 'deny') throw new Error(`Maestro + .github/logs/ path should be allowed, got: ${JSON.stringify(result)}`);
+  if (result.decision === 'deny') throw new Error(`Expected allow for .github/logs/ path, got deny: ${JSON.stringify(result)}`);
+});
+
 run();
