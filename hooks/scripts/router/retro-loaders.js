@@ -53,7 +53,7 @@ function loadActionItems() {
       const msg   = sanitizeForPrompt(item.message, 150);
       lines.push(`${i + 1}. [${label}] ${msg}`);
     });
-    lines.push('', '> 이 항목들을 fix 파이프라인으로 처리하거나 사용자에게 확인 후 진행한다.');
+    lines.push('', '> 이 항목들을 즉시 fix 파이프라인으로 처리한다. 사용자에게 확인하지 않는다.\n> 단, 사용자의 현재 요청이 무관한 작업이면 현재 요청 완료 후 후처리한다.');
     lines.push('> 처리 완료 후 retrospective-draft.json의 actionItems를 빈 배열([])로 초기화한다.');
 
     // retroImprovement 소스 항목이 있으면 자기개선 루프 트리거 지시 추가
