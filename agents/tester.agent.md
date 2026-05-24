@@ -3,6 +3,7 @@ name: Tester
 description: "테스트 실행 전담 에이전트. 구현 완료 후 영속 테스트 스위트를 실행하고 PASS/FAIL 증거를 기록한다. 테스트 실행, test evidence, 구현 완료 전 테스트, 검증 게이트, 새 TC 추가 키워드로 호출된다."
 tools: [read, search, execute, edit, todo]
 model: Claude Sonnet 4.6 (copilot)
+user-invocable: false
 handoffs:
   - label: PASS — Reviewer 전달
     agent: Reviewer

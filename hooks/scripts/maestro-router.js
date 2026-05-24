@@ -45,7 +45,11 @@ const API_BASE  = process.env.OPENCODE_API_BASE  || 'https://opencode.ai/zen/go/
 const MODEL     = process.env.OPENCODE_HOOK_MODEL || 'deepseek-v4-flash';
 
 // ── Maestro: LLM 분류 스킵, todo만 주입 ──────────────────────────
-if (agentName === 'Maestro') {
+// agentName === '' : modeInstructions 기반 세션 (VS Code Copilot 모드)
+// agentName === 'Maestro' : @Maestro 에이전트 직접 선택
+const KNOWN_SUBAGENTS = new Set(['Planner','Implementer','Tester','Reviewer','Documenter','Investigator','Release','Critic','Scout','Context7 Docs Agent']);
+const isMaestroContext = !KNOWN_SUBAGENTS.has(agentName);
+if (isMaestroContext) {
   // ── 인터럽트 감지: in-progress 항목 확인 ─────────────────────
   function getInProgressTodos() {
     const stateFile = path.resolve(process.cwd(), '.github', 'logs', 'current-todos.json');

@@ -11,7 +11,7 @@ model: [Claude Opus 4.7 (copilot), GPT-5.5 (copilot), Claude Sonnet 4.6 (copilot
 
 tools: [read, search, web, todo]
 
-user-invocable: true
+user-invocable: false
 disable-model-invocation: false
 target: vscode
 

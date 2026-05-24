@@ -3,6 +3,7 @@ name: Release
 description: "릴리즈 전담 에이전트. 버전 범프, CHANGELOG 업데이트, git 태그, 배포(npm/pypi/docker) 등 릴리즈 파이프라인을 실행한다. 릴리즈, 배포, 버전 올려, publish, deploy, tag 키워드로 호출된다."
 tools: [read, search, execute, edit, todo]
 model: [Claude Opus 4.7 (copilot), GPT-5.5 (copilot), Claude Sonnet 4.6 (copilot)]
+user-invocable: false
 handoffs:
   - label: Release 완료 — 릴리즈 결과 보고
     agent: Maestro

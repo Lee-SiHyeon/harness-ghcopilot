@@ -18,7 +18,7 @@ model: [Claude Opus 4.7 (copilot), GPT-5.5 (copilot), Claude Sonnet 4.6 (copilot
 tools: [read, search, web, 'context7/*']
 # ─── 가시성 설정 ────────────────────────────────────────────────────
 # false: 에이전트 드롭다운에 표시 안 됨 (subagent로만 사용 가능)
-user-invocable: true
+user-invocable: false
 
 # true: 다른 에이전트가 이 에이전트를 subagent로 호출하는 것을 차단
 disable-model-invocation: false

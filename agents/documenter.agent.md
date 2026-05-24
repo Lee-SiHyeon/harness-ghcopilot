@@ -10,7 +10,7 @@ tools: [read, edit, search, execute, web, agent, 'context7/*', 'vscode/*']
 agents: ['Context7 Docs Agent', 'Planner', 'Implementer']
 
 # ─── 가시성 설정 ────────────────────────────────────────────────────
-user-invocable: true
+user-invocable: false
 target: vscode
 
 # ─── Handoffs ───────────────────────────────────────────────────────

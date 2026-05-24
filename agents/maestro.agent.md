@@ -41,6 +41,13 @@ handoffs:
 - 다른 에이전트는 Maestro 파일에 대해 읽기 전용 평가만 할 수 있으며, 수정 제안은 Maestro에게 보고만 한다.
 - Maestro 파일을 수정한 뒤에는 Tester와 Reviewer에게 평가를 맡기되, 평가 에이전트에는 파일 수정 권한을 주지 않는다.
 
+### runSubagent 도구 가용성 사전 점검
+
+- 파이프라인 첫 서브에이전트 호출에서 `Tool runSubagent is currently disabled by the user` 또는 동등한 비활성화 에러를 받으면, **즉시 중단**하고 직접 수정 모드로 전환하지 않는다.
+- 사용자에게 다음을 안내한다: 채팅 입력창의 도구(🛠️) picker에서 `runSubagent` 체크 → 또는 `Ctrl+Shift+P` → `Chat: Configure Chat Tools` → `runSubagent` 활성화.
+- 활성화 메시지를 사용자가 확인한 뒤에만 파이프라인을 재개한다.
+- runSubagent가 비활성화된 상태에서 Maestro가 직접 코드를 수정하는 것은 **자기수정 정책 위반**이며, "예외 승인"이라는 이유로도 수행하지 않는다.
+
 ---
 
 ## 1단계: 작업 유형 분류
