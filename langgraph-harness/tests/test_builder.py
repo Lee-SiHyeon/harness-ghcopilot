@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import os
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+_LANGGRAPH_INSTALLED = importlib.util.find_spec("langgraph") is not None
+
 
 class TestBuilderImportError(unittest.TestCase):
     """Verify builder raises ImportError when langgraph is absent."""
 
+    @unittest.skipIf(_LANGGRAPH_INSTALLED, "langgraph is installed - absence test not applicable")
     def test_raises_import_error_when_langgraph_missing(self) -> None:
         """When langgraph is not installed, build_pipeline_graph must raise."""
         # Temporarily hide langgraph from sys.modules to simulate absence
@@ -51,8 +55,7 @@ class TestBuilderWithLangGraph(unittest.TestCase):
     """Smoke-test graph compilation when langgraph is installed."""
 
     @unittest.skipUnless(
-        __import__("importlib.util", fromlist=["find_spec"]).find_spec("langgraph")
-        is not None,
+        _LANGGRAPH_INSTALLED,
         "langgraph not installed",
     )
     def test_build_pipeline_graph_returns_compiled(self) -> None:
