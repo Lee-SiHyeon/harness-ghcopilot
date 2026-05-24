@@ -256,7 +256,7 @@ complexity ≥ 3인 모든 파이프라인 완료 후 **반드시** 수행한다
 
 ### 자기비평 체크리스트
 - [ ] 계획된 파이프라인 vs 실제 실행 에이전트 일치 여부
-- [ ] Tester 건너뜀 여부 — **코드 로직 변경이 있는 경우** 필수. 코드 변경이 없으면 Tester 대상이 아님 (별도 선언 불필요)
+- [ ] Tester 건너뜀 여부 — **코드 로직 변경이 있는 경우** 필수. 코드 변경이 없으면 Tester 대상이 아님 (별도 선언 불필요). 단, **`.github/agents/maestro.agent.md` 또는 `.github/hooks/` 하위 파일 변경 시**에는 파일 확장자와 무관하게 `maestro-suite.test.js` 실행 필수.
 - [ ] Reviewer가 크리티컬 이슈를 발견했는가 (발견 = 계획 품질 낮음)
 - [ ] Context7 사용 여부 (라이브러리 API 작성 시 미사용 = 위험)
 - [ ] 3회 Reviewer ↔ Implementer 순환 발생 여부

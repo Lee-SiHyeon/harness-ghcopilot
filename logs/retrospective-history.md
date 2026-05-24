@@ -11,6 +11,19 @@
 
 ---
 
+## 2026-05-24 — Critic H3 기준 수정 (maestro.agent.md Tester 필수 예외) (fix: Tester->Implementer->Reviewer->Implementer->Tester->Reviewer->Critic->Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Tester(150/150) -> Implementer(1차, 예외규칙추가) -> Reviewer(REJECT, 경로불일치) -> Implementer(2차, 경로통일) -> Tester(150/150) -> Reviewer(승인) -> Critic |
+| 건너뜀 | 없음 |
+| 반복 이슈 | Retrospective 미기록 → Critic H2 FAIL 반복. 또한 이번 파이프라인의 원인 자체가 직전 파이프라인에서 Critic이 .md 파일 변경을 Tester 불필요로 잘못 통과시킨 것. |
+
+**자기비평**: Critic이 .md 에이전트 파일을 코드 없음으로 분류해 maestro-suite.test.js 실행 없이 통과시켰다. 에이전트 설정 파일은 행동 변경이므로 코드와 동등하게 취급해야 했다.
+**다음 번 개선**: .github/agents/ 또는 .github/hooks/ 하위 파일 변경 시 Critic 체크리스트에서 maestro-suite.test.js 실행 여부를 명시적으로 확인한다.
+
+---
+
 ## 2026-05-24 — maestro 규칙 3개 추가 (implement: Implementer->Reviewer->Implementer->Reviewer->Critic->Release)
 
 | 항목 | 내용 |
