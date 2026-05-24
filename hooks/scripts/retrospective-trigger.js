@@ -10,14 +10,17 @@
 const fs   = require('fs');
 const path = require('path');
 
-const TERMINAL_AGENTS = new Set(['Reviewer', 'Planner', 'Release', 'Documenter', 'Investigator']);
+// G6: Maestro 포함 — @Maestro 에이전트 세션 종료 시에도 회고 트리거
+const TERMINAL_AGENTS = new Set(['Reviewer', 'Planner', 'Release', 'Documenter', 'Investigator', 'Maestro']);
 
+// G3: Release 키 추가 — Release 건너뜀 시 전용 메시지 생성
 const ACTION_TEMPLATES = {
   Tester:       'implement/fix 파이프라인에서 Tester 호출 필수 — 다음 Reviewer 호출 전 확인',
   Reviewer:     'Reviewer 승인 없이 파이프라인 종료 금지 — 재실행 필요',
   Planner:      'Planner 건너뜀 — 다음 실행 시 설계 검증 단계 추가',
   Investigator: 'fix 파이프라인 시작 전 Investigator 완료 필수',
   Documenter:   'Documenter 단계 누락 — 문서화 후속 작업 확인',
+  Release:      'Release 단계 누락 — 변경 사항 미커밋. 다음 실행 시 Release 포함 필수',
 };
 
 const HOOKS_DIR  = path.resolve(__dirname, '..');

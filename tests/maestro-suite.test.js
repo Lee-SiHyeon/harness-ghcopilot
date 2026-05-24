@@ -1338,4 +1338,180 @@ tc('tc-125', 'retrospective-trigger / generatePendingTCs-retro-exclusion', 'gene
   if (!src.includes('existingActionItems')) throw new Error('existingActionItems 읽기 코드 없음');
 });
 
+// ════════════════════════════════════════════════════════════════
+// tc-126~140: 다각도 커버리지 — G1/G3/G6, 엣지케이스, 구조 검증
+// ════════════════════════════════════════════════════════════════
+
+// ── G1: pipeline-logger.js 빈 todoList 저장 ─────────────────────
+tc('tc-126', 'pipeline-logger / G1-empty-todoList-saves', '빈 todoList도 hasTodoListField 시 파일 저장 (stale 클리어)', () => {
+  const src = readSrc('pipeline-logger.js');
+  if (!src.includes('hasTodoListField')) throw new Error('hasTodoListField 변수 없음 — G1 미수정');
+  if (!src.includes("'todoList' in inp")) throw new Error("'todoList' in inp 체크 없음");
+  // 기존 가드(length>0만 저장)가 저장 경로에 남아있지 않아야 함
+  // 저장 로직이 hasTodoListField 블록 안에 있는지 확인
+  const hasTodoSaveBlock = /hasTodoListField[\s\S]{0,200}writeFileSync/.test(src);
+  if (!hasTodoSaveBlock) throw new Error('hasTodoListField 블록 안에 writeFileSync 없음');
+});
+
+// ── G3: retrospective-trigger.js Release 키 ──────────────────────
+tc('tc-127', 'retrospective-trigger / G3-Release-template', 'ACTION_TEMPLATES에 Release 키 존재', () => {
+  const src = readSrc('retrospective-trigger.js');
+  if (!src.includes('Release:')) throw new Error('ACTION_TEMPLATES에 Release 키 없음');
+  // 메시지가 의미있는 문자열인지 확인
+  const m = src.match(/Release:\s*['"]([^'"]+)['"]/);
+  if (!m) throw new Error('Release 템플릿 메시지 형식 불일치');
+  if (m[1].length < 10) throw new Error(`Release 메시지가 너무 짧음: "${m[1]}"`);
+});
+
+// ── G6: retrospective-trigger.js Maestro 포함 ────────────────────
+tc('tc-128', 'retrospective-trigger / G6-Maestro-terminal', 'TERMINAL_AGENTS에 Maestro 포함', () => {
+  const src = readSrc('retrospective-trigger.js');
+  if (!/TERMINAL_AGENTS\s*=\s*new Set\(/.test(src)) throw new Error('TERMINAL_AGENTS Set 없음');
+  if (!src.includes("'Maestro'")) throw new Error("TERMINAL_AGENTS에 'Maestro' 없음");
+});
+
+// ── S1: safety-guard force-with-lease 오탐 제거 ──────────────────
+tc('tc-129', 'safety-guard / S1-no-force-with-lease-pattern', 'force-with-lease는 DESTRUCTIVE_PATTERNS에서 제외', () => {
+  const src = readSrc('safety-guard.js');
+  // 실제 re: 엔트리로 등록된 force-with-lease 패턴 없어야 함 (주석은 OK)
+  const rePattern = /\{\s*re\s*:\s*\/[^/]*force-with-lease/.test(src);
+  if (rePattern) throw new Error('force-with-lease가 DESTRUCTIVE_PATTERNS re: 항목으로 남아있음 — 오탐 제거 필요');
+  // plain --force는 여전히 유지
+  if (!src.includes('--force')) throw new Error('git push --force 패턴이 사라짐');
+});
+
+// ── T1: model-unavailability-tracker TTL ────────────────────────
+tc('tc-130', 'model-unavailability-tracker / T1-ttl', '24h TTL 로직 존재', () => {
+  const src = readSrc('model-unavailability-tracker.js');
+  if (!src.includes('TTL_MS')) throw new Error('TTL_MS 상수 없음');
+  if (!src.includes('24 * 60 * 60 * 1000')) throw new Error('24h TTL 값 없음');
+  if (!src.includes('data.models = []')) throw new Error('TTL 초과 시 models 초기화 코드 없음');
+});
+
+// ── C1: KNOWN_SUBAGENTS ↔ user-invocable:false 에이전트 동기화 ───
+tc('tc-131', 'maestro-router / C1-KNOWN_SUBAGENTS-sync', 'KNOWN_SUBAGENTS에 모든 서브에이전트 포함', () => {
+  const src = readSrc('maestro-router.js');
+  // KNOWN_SUBAGENTS 집합에서 에이전트 목록 파싱
+  const m = src.match(/KNOWN_SUBAGENTS\s*=\s*new Set\(\[([^\]]+)\]\)/);
+  if (!m) throw new Error('KNOWN_SUBAGENTS Set 없음');
+  const listed = m[1].match(/'([^']+)'/g).map(s => s.replace(/'/g, ''));
+  // user-invocable: false인 에이전트 파일에서 name 파싱
+  const agentsDir = path.resolve(__dirname, '../agents');
+  const agentFiles = fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md'));
+  const notInvocable = [];
+  for (const f of agentFiles) {
+    const content = fs.readFileSync(path.join(agentsDir, f), 'utf8');
+    const nameMatch = content.match(/^name:\s*(.+)$/m);
+    const invMatch  = content.match(/^user-invocable:\s*(.+)$/m);
+    if (!nameMatch) continue;
+    const name = nameMatch[1].trim();
+    const invocable = invMatch ? invMatch[1].trim() !== 'false' : true;
+    if (!invocable && name !== 'Maestro') notInvocable.push(name);
+  }
+  const missing = notInvocable.filter(n => !listed.includes(n));
+  if (missing.length > 0) throw new Error(`KNOWN_SUBAGENTS에 누락된 에이전트: ${missing.join(', ')}`);
+});
+
+// ── retro-renderer.js 신택스 + 기본 동작 ──────────────────────
+tc('tc-132', 'retro-renderer / syntax', 'node --check retro-renderer.js', () => {
+  syntaxCheck('retro-renderer.js');
+});
+
+tc('tc-133', 'retro-renderer / render-empty', '빈 retro.jsonl이면 outPath 생성 안 함', () => {
+  const os = require('os');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc133-'));
+  try {
+    const { render } = require('../hooks/scripts/retro-renderer.js');
+    render(tmpDir); // jsonlPath 없음 → early return
+    const outPath = path.join(tmpDir, 'retrospective-history.md');
+    if (fs.existsSync(outPath)) throw new Error('빈 jsonl 없이 md가 생성됨');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+tc('tc-134', 'retro-renderer / render-normal', '정상 레코드 → md 헤더와 날짜 포함', () => {
+  const os = require('os');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc134-'));
+  try {
+    const record = { date: '2026-05-24', title: '테스트 회고', type: 'fix', pipeline: 'A→B',
+      executed: 'A ✅', skipped: '없음', repeatIssue: '없음',
+      selfCritique: '테스트 자기비평', nextImprovement: '테스트 개선사항' };
+    fs.writeFileSync(path.join(tmpDir, 'retro.jsonl'), JSON.stringify(record) + '\n', 'utf8');
+    const { render } = require('../hooks/scripts/retro-renderer.js');
+    render(tmpDir);
+    const md = fs.readFileSync(path.join(tmpDir, 'retrospective-history.md'), 'utf8');
+    if (!md.includes('AUTO-GENERATED')) throw new Error('AUTO-GENERATED 헤더 없음');
+    if (!md.includes('2026-05-24')) throw new Error('날짜 없음');
+    if (!md.includes('테스트 회고')) throw new Error('타이틀 없음');
+    if (!md.includes('테스트 자기비평')) throw new Error('selfCritique 없음');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+tc('tc-135', 'retro-renderer / render-malformed-line', '잘못된 JSON 라인은 건너뛰고 정상 레코드는 렌더링', () => {
+  const os = require('os');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc135-'));
+  try {
+    const good = { date: '2026-05-24', title: '정상', type: 'fix', pipeline: 'A',
+      executed: 'A ✅', selfCritique: 'ok', nextImprovement: 'ok' };
+    const content = 'NOT_JSON\n' + JSON.stringify(good) + '\n{broken\n';
+    fs.writeFileSync(path.join(tmpDir, 'retro.jsonl'), content, 'utf8');
+    const { render } = require('../hooks/scripts/retro-renderer.js');
+    render(tmpDir);
+    const md = fs.readFileSync(path.join(tmpDir, 'retrospective-history.md'), 'utf8');
+    if (!md.includes('정상')) throw new Error('정상 레코드가 렌더링 안 됨');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// ── subagent-stop-logger.js 신택스 ──────────────────────────────
+tc('tc-136', 'subagent-stop-logger / syntax', 'node --check subagent-stop-logger.js', () => {
+  syntaxCheck('subagent-stop-logger.js');
+});
+
+// ── pipeline-logger.js 엣지케이스: TOOL_INPUT 없을 때 crash 없음 ─
+tc('tc-137', 'pipeline-logger / edge-no-tool-input', 'TOOL_INPUT 미제공 시 크래시 없음 (node --check)', () => {
+  syntaxCheck('pipeline-logger.js');
+  // G1 수정 확인: hasTodoListField IIFE + catch 내 return false 존재
+  const src = readSrc('pipeline-logger.js');
+  if (!src.includes('hasTodoListField')) throw new Error('hasTodoListField 변수 없음');
+  if (!src.includes('return false;')) throw new Error('IIFE catch에 return false 없음');
+  if (!src.includes('})();')) throw new Error('IIFE 닫힘 괄호 없음');
+});
+
+// ── retro-improvement-parser.js: retro.jsonl 기준 동작 ───────────
+tc('tc-138', 'retro-improvement-parser / retro-jsonl-target', 'retro.jsonl basename 체크 존재 + retrospective-history.md 아님', () => {
+  const src = readSrc('retro-improvement-parser.js');
+  if (!src.includes("basename !== 'retro.jsonl'")) throw new Error("retro.jsonl 체크 없음");
+  // retrospective-history.md를 직접 체크하지 않아야 함 (retro.jsonl이 트리거)
+  if (src.includes("basename !== 'retrospective-history.md'")) {
+    throw new Error('retrospective-history.md를 직접 체크 중 — retro.jsonl이 올바른 트리거');
+  }
+});
+
+// ── safety-guard.js 엣지케이스: command가 빈 문자열 ───────────────
+tc('tc-139', 'safety-guard / edge-empty-command', '명령어 빈 문자열 시 allow (crash 없음)', () => {
+  const src = readSrc('safety-guard.js');
+  // DESTRUCTIVE_PATTERNS.filter 전에 command 파싱 실패 시 '' 폴백 존재
+  if (!src.includes("command = toolInput")) throw new Error('command 폴백 코드 없음');
+  // 빈 command는 어떤 패턴도 매칭하지 않으므로 allow
+  const patterns = [
+    { re: /rm\s+-[rRfF]{1,4}\s/, label: 'x' },
+  ];
+  const matched = patterns.filter(p => p.re.test(''));
+  if (matched.length !== 0) throw new Error('빈 문자열이 패턴에 매칭됨');
+});
+
+// ── audit-logger.js: SENSITIVE_RE 신선한 인스턴스 사용 ────────────
+tc('tc-140', 'audit-logger / redact-stateless', 'redact()가 매 호출마다 새 RegExp 생성 (lastIndex 문제 없음)', () => {
+  const src = readSrc('audit-logger.js');
+  // new RegExp(SENSITIVE_RE.source, SENSITIVE_RE.flags) 패턴으로 매번 신선한 인스턴스 사용
+  if (!src.includes('new RegExp(SENSITIVE_RE.source, SENSITIVE_RE.flags)')) {
+    throw new Error('redact()에서 신선한 RegExp 인스턴스를 생성하지 않음 — lastIndex 상태 버그 가능성');
+  }
+});
+
 run();

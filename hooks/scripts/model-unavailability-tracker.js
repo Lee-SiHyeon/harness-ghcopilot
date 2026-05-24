@@ -40,6 +40,12 @@ try {
   try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) {}
   if (!Array.isArray(data.models)) data.models = [];
 
+  // TTL: 24h 초과 시 stale 항목 초기화 (플랜 업그레이드·일시 오류 후 자동 복구)
+  const TTL_MS = 24 * 60 * 60 * 1000;
+  if (data.updatedAt && Date.now() - new Date(data.updatedAt).getTime() > TTL_MS) {
+    data.models = [];
+  }
+
   if (!data.models.includes(exceededModel)) {
     data.models.push(exceededModel);
     data.updatedAt = new Date().toISOString();

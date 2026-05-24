@@ -35,7 +35,7 @@ try {
 const DESTRUCTIVE_PATTERNS = [
   { re: /rm\s+-[rRfF]{1,4}\s/,     label: 'rm -rf (재귀 삭제)' },
   { re: /git\s+push\s+.*--force(?!-with-lease)/i, label: 'git push --force' },
-  { re: /git\s+push\s+.*--force-with-lease/i, label: 'git push --force-with-lease' },
+  // force-with-lease는 원격 브랜치 보호 안전 메커니즘 — 위험 패턴에서 제외
   { re: /git\s+reset\s+--hard/i,  label: 'git reset --hard' },
   { re: /DROP\s+TABLE/i,           label: 'DROP TABLE (DB 테이블 삭제)' },
   { re: /DROP\s+DATABASE/i,        label: 'DROP DATABASE' },

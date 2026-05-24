@@ -203,17 +203,25 @@ if (toolName === 'manage_todo_list') {
     todoList = (inp && typeof inp === 'object' ? inp : {}).todoList || [];
   } catch (_) {}
 
-  if (todoList.length > 0) {
-    // logsDir은 파일 상단에서 정의됨
-    try { fs.mkdirSync(logsDir, { recursive: true }); } catch (_) {}
+  // G1: todoList 필드 자체가 존재하면 빈 배열이라도 항상 저장 → stale in-progress 클리어
+  const hasTodoListField = (() => {
+    try {
+      let inp = stdinData?.tool_input || stdinData?.toolInput;
+      if (inp == null) { try { inp = JSON.parse(process.env.TOOL_INPUT || '{}'); } catch (_) { inp = {}; } }
+      return inp && typeof inp === 'object' && 'todoList' in inp;
+    } catch (_) { return false; }
+  })();
 
-    // JSON 저장 (실제 데이터)
+  if (hasTodoListField) {
+    try { fs.mkdirSync(logsDir, { recursive: true }); } catch (_) {}
     const stateFile = path.join(logsDir, 'current-todos.json');
     try {
       fs.writeFileSync(stateFile, JSON.stringify({ ts: new Date().toISOString(), todos: todoList }, null, 2), 'utf8');
     } catch (_) {}
+  }
 
-    // 사용자 슬랙 요약
+  if (todoList.length > 0) {
+    // 사용자 슬랙 요약 (비어있지 않을 때만)
     const STATUS_ICON = { 'completed': '✅', 'in-progress': '🔄', 'not-started': '□' };
     const lines = todoList.map(t => `${STATUS_ICON[t.status] || '?'} ${t.title}`);
     const doneCount = todoList.filter(t => t.status === 'completed').length;
