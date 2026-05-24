@@ -132,3 +132,15 @@
 
 **자기비평**: 분석과 실제 CLI 검증은 수행했지만 첫 Critic 호출 전에 회고와 Reviewer Critical 0 명시를 준비하지 못해 파이프라인 감사 기준을 한 번 더 위반했다.
 **다음 번 개선**: review/validate 성격의 복잡 요청도 Tester 이후 Critic 호출 전 `Reviewer Critical 0 재확인`과 `Retrospective 기록`을 먼저 완료한다.
+
+---
+## 2026-05-24 — Scout Ralph Loop 스킬/훅 추가 (implement: Planner→Implementer→Tester→Reviewer→Critic→Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Planner ✅ → Implementer ✅ → Maestro 직접 자기수정 ✅ → Tester ✅ (96/96) → Reviewer ✅ → Implementer ✅(Warning 반영) → Tester ✅ (96/96) → Reviewer ✅ |
+| 건너뜀 | 없음 |
+| 반복 이슈 | 없음 — Retrospective를 Critic 전에 선행 기록 |
+
+**자기비평**: 초기 Planner 호출에서 기본 모델 선택이 비용 tier 문제로 실패했고, 사용자가 싫어한 Sonnet 4.5 강제 호출 문제를 별도 설정/예시까지 점검해야 했다.
+**다음 번 개선**: subagent 호출 시 모델 지정은 사용자 요청이 있거나 기본 모델이 실패한 경우에만 투명하게 설명하고 사용하며, 커밋 전 `grep`으로 원치 않는 모델 override가 남아 있지 않은지 확인한다.

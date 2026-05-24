@@ -5,13 +5,13 @@ description: 선택한 코드에 대한 단위 테스트를 생성한다
 argument-hint: '[테스트할 파일 경로]'
 
 # ─── Agent 및 도구 설정 ─────────────────────────────────────────────
-agent: implementer
+agent: Implementer
 
 # Agent의 기본 도구를 제한 — 테스트 생성에 필요한 도구만 허용
 tools: [read, edit, search, 'context7/*']
 
 # ─── 기타 사용 가능 옵션 (주석 처리) ──────────────────────────────────
-# model: Claude Sonnet 4.5 (copilot)  # 특정 모델 강제
+# model: GPT-5.5 (copilot)            # 특정 모델 강제 예시
 # user-invocable: false               # 슬래시 커맨드에서 숨김
 # agents: ['Planner', 'Reviewer']     # Subagent 제한
 # handoffs:                           # 테스트 생성 후 다음 단계

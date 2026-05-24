@@ -8,18 +8,14 @@ argument-hint: '[라이브러리명] [원하는 기능] (예: React useCallback,
 
 # ─── 모델 설정 ──────────────────────────────────────────────────────
 # 단일 모델 또는 우선순위 배열 지정. 미지정 시 현재 선택 모델 사용.
-# 형식: 'Model Name (vendor)' — 예: 'Claude Sonnet 4.5 (copilot)', 'GPT-4o (copilot)'
-model: Claude Sonnet 4.6 (copilot)
+# 형식: 'Model Name (vendor)' — 예: 'GPT-5.5 (copilot)', 'Claude Sonnet 4.6 (copilot)'
+model: [Claude Opus 4.7 (copilot), GPT-5.5 (copilot), Claude Sonnet 4.6 (copilot)]
 
 # ─── 도구 설정 ──────────────────────────────────────────────────────
 # 사용 가능한 built-in tool sets: read, edit, search, execute, web, browser, agent, todo
 # VS Code 도구 전체: 'vscode/*'  |  개별 도구: 'vscode/runCommand', 'vscode/askQuestions' ...
 # MCP 서버 전체: 'context7/*'    |  개별 도구: 'context7/query-docs' ...
 tools: [read, search, web, 'context7/*']
-
-# subagent로 사용할 에이전트 목록. '*' = 전체 허용, [] = 완전 차단
-# (agent 도구가 tools에 포함돼 있어야 작동)
-agents: ['*']
 
 # ─── 가시성 설정 ────────────────────────────────────────────────────
 # false: 에이전트 드롭다운에 표시 안 됨 (subagent로만 사용 가능)
@@ -46,7 +42,6 @@ handoffs:
     agent: Planner
     prompt: 위 내용을 바탕으로 구현 계획을 세워줘.
     send: false                         # true면 자동 전송
-    model: Claude Sonnet 4.5 (copilot)  # 이 handoff에서 사용할 모델 (선택)
   - label: Review - 코드 리뷰
     agent: Reviewer
     prompt: 변경된 코드를 리뷰해줘.
