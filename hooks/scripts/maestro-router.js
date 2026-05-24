@@ -279,7 +279,8 @@ Field rules:
 - stacks: detected frameworks e.g. ["Next.js","Prisma","Supabase"]
 - task_count: number of distinct subtasks (1-10)
 - pipeline: ordered agent list from ["Context7 Docs Agent","Planner","Implementer","Tester","Reviewer","Documenter","Investigator","Release","Critic"]
-- For intent=fix: pipeline MUST start with Investigator: ["Investigator","Implementer","Tester","Reviewer"]
+- For intent=implement: pipeline MUST include Tester: ["Planner","Implementer","Tester","Reviewer"]
+- For intent=fix: pipeline MUST start with Investigator and include Tester: ["Investigator","Implementer","Tester","Reviewer"]
 - For intent=investigate: pipeline is ["Investigator"] only
 - If user observes something is MISSING or NOT CONNECTED in the project (e.g., "왜 X가 없지", "X가 빠져있어", "X가 누락됐어") → intent="fix" NOT "investigate"
 - For intent=release: pipeline MUST be exactly ["Release","Critic"] — Release at index 0, Critic last, nothing appended after

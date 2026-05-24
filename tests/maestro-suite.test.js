@@ -717,4 +717,20 @@ tc('tc-076', 'release.agent.md / commit-only-mode', '커밋 전용 모드 섹션
   if (!src.includes('커밋 전용 모드')) throw new Error('커밋 전용 모드 섹션 없음');
 });
 
+// ── tc-077~078: Critic H3 intent 기반 Tester 필수 규칙 ─────────────────────────
+
+tc('tc-077', 'critic.agent.md / h3-intent-based', 'H3가 intent(implement/fix) 기반 Tester 필수 명시', () => {
+  const src = readAgent('critic.agent.md');
+  if (!src.includes('implement')) throw new Error('H3에 implement 기반 체크 없음');
+  if (!src.includes('fix') || !src.includes('Tester')) throw new Error('H3에 fix/Tester 조건 없음');
+  // complexity 기반 자동 PASS 규칙이 없어야 함
+  if (src.includes('complexity < 5면 자동 PASS')) throw new Error('H3가 아직 complexity 기반 자동 PASS 로직 포함');
+});
+
+tc('tc-078', 'maestro-router.js / implement-tester-rule', 'SYSTEM_PROMPT에 implement Tester 필수 규칙 존재', () => {
+  const src = readSrc('maestro-router.js');
+  if (!src.includes('intent=implement') || !src.includes('Tester')) throw new Error('SYSTEM_PROMPT에 implement Tester 필수 규칙 없음');
+});
+
 run();
+
