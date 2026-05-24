@@ -269,11 +269,9 @@ if (agentName === 'Maestro') {
     '> 계획 없이 에이전트를 호출하는 것은 허용되지 않는다.',
   );
   if (savedTodos) parts.push('', savedTodos);
-  // 과거 회고 패턴 주입 (복잡한 파이프라인에서만)
-  if (savedTodos && savedTodos.length > 0) {
-    const retroBlock = loadRetrospectiveLearnings();
-    if (retroBlock) parts.push(retroBlock);
-  }
+  // 과거 회고 패턴 주입 (todo 유무 무관하게 항상 주입)
+  const retroBlock = loadRetrospectiveLearnings();
+  if (retroBlock) parts.push(retroBlock);
   parts.push('', '## [원본 요청]', prompt);
   const promptSummary = audit ? audit.summarize(prompt, 100) : prompt.slice(0, 100);
   tryAudit({ event: 'maestro_passthrough', source: 'UserPromptSubmit', agentName, promptSummary });
@@ -591,6 +589,12 @@ function buildOutput(analysis, usedLLM) {
     analysis = classifyWithRegex(prompt);
     tryAudit({ event: 'regex_fallback', source: 'UserPromptSubmit', intent: analysis.intent, pipeline: analysis.pipeline, complexity: analysis.complexity, fallbackReason: _llmErrorReason || 'no_api_key', reason: analysis.reason, agentName, promptSummary });
   }
+
+  // nah pattern: PreToolUse 가드가 읽을 수 있도록 현재 intent 저장
+  try {
+    const intentFile = path.join(process.cwd(), '.github', 'logs', 'current-intent.json');
+    fs.writeFileSync(intentFile, JSON.stringify({ intent: analysis.intent, ts: new Date().toISOString() }));
+  } catch (_) {}
 
   const result = buildOutput(analysis, usedLLM);
   tryAudit({ event: 'final_pipeline', source: 'UserPromptSubmit', pipeline: analysis.pipeline, intent: analysis.intent, complexity: analysis.complexity, usedLLM, agentName, promptSummary, hitl: result.decision === 'ask' });

@@ -57,6 +57,19 @@ try {
     return !normPath.startsWith(cwdNorm + '/') && normPath !== cwdNorm;
   }
 
+  // ── nah pattern: read-only 에이전트/intent 소프트 경고 ─────────────────
+  const READ_ONLY_AGENTS = new Set(['Investigator', 'Reviewer', 'Planner', 'Scout']);
+  const READ_ONLY_INTENTS = new Set(['question', 'query', 'investigate', 'review', 'plan', 'scout']);
+  function loadCurrentIntent() {
+    try {
+      const intentFile = path.join(cwd, '.github', 'logs', 'current-intent.json');
+      const data = JSON.parse(fs.readFileSync(intentFile, 'utf8'));
+      // 1시간 이상 된 stale 데이터는 무시
+      if (Date.now() - new Date(data.ts || 0).getTime() > 3600000) return null;
+      return data.intent || null;
+    } catch { return null; }
+  }
+
   // 보호 패턴 ─────────────────────────────────────────────────────
   function isHooksPath(p) {
     const rel = p.slice(cwdNorm.length + 1);
@@ -183,6 +196,19 @@ try {
     if (isDestructive) {
       logItems.push({ ts: new Date().toISOString(), tool: toolName, path: p, rel: relPath });
     }
+  }
+
+  // ── nah-guard: read-only 에이전트/intent가 로그 외 파일 수정 시 소프트 경고 ──
+  const currentIntent = loadCurrentIntent();
+  const isReadOnlyAgent = READ_ONLY_AGENTS.has(agentName);
+  const isReadOnlyIntent = currentIntent && READ_ONLY_INTENTS.has(currentIntent);
+  const isAllLogPaths = paths.length > 0 && paths.every(p => p.replace(/\\/g, '/').includes('/.github/logs/'));
+  if ((isReadOnlyAgent || isReadOnlyIntent) && !isAllLogPaths && denyItems.length === 0 && askItems.length === 0) {
+    const hint = isReadOnlyAgent
+      ? `에이전트 ${agentName}는 읽기 전용 역할입니다`
+      : `현재 intent=${currentIntent}는 읽기 전용입니다`;
+    warnItems.push(`⚠️ [nah-guard] ${hint} — 파일 수정이 의도된 것인지 확인하세요`);
+    tryAudit({ event: 'nah_guard', decision: 'soft_warn', tool: toolName, agent: agentName, intent: currentIntent });
   }
 
   // ── 최종 판정 (우선순위: ask > warn/log > continue) ────────────

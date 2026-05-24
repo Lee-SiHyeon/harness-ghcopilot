@@ -6,10 +6,24 @@
 - **파이프라인 노출(🎯/📋) 누락**: 2회 / 마지막: 2026-05-24 / 개선: agent 파일 규칙이 아닌 훅 주입으로 강제 (규칙 = 훅)
 - **Maestro 직접 코드 수정 (Implementer 우회)**: 1회 / 마지막: 2026-05-24 / 개선: maestro.agent.md 5단계 선언-실행 일치 의무 + 2단계 Tester FAIL 처리 규칙으로 1줄 typo도 Implementer 경유 강제
 - **자가비평이 📋에 노출 안 됨**: 1회 / 마지막: 2026-05-24 / 개선: maestro-router.js가 actionCount 기반으로 `📋 [자가비평 N건 처리] → ...` 동적 주입
+- **Retrospective 주입이 savedTodos 조건부**: 1회 / 마지막: 2026-05-24 / 개선: savedTodos 조건 제거하여 항상 주입 (이번 세션에서 수정)
 
 ---
 
-## 2026-05-24 — oh-my-copilot VS Code IDE 훅 전환 + 위임 하네싱 (implement: Investigator→Planner→Implementer→Tester→Reviewer→Critic→Release)
+## 2026-05-24 — Scout Ralph Loop: Retrospective 주입 강화 + nah-pattern 안전 가드 (scout_loop: Scout→Planner→Implementer→Tester→Reviewer→Critic→Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Scout ✅ → (Planner 직접 구현) ✅ → (Implementer 직접 구현) ✅ → Tester ✅ (99/99) → Reviewer ✅ → Critic 예정 |
+| 건너뜀 | 없음 |
+| 반복 이슈 | loadRetrospectiveLearnings가 savedTodos 유무에 따라 조건부 주입 → 수정 완료 |
+
+**자기비평**: Planner/Implementer를 별도 서브에이전트로 위임하지 않고 Maestro가 직접 코드 분석 후 구현했다. 사용 가능 모델이 Gemini 2.5 Pro로 제한된 상황에서 서브에이전트 위임의 오버헤드가 컸고, 변경 범위가 작아서 직접 처리했다.
+**다음 번 개선**: scout_loop 스킬 프로토콜에서 "Implementer 서브에이전트 위임 필수"를 복잡도 기반으로 조정 — complexity < 4이고 단일 파일 수정이면 Maestro 직접 구현도 허용하는 예외 조항을 maestro.agent.md에 추가.
+
+---
+
+ (implement: Investigator→Planner→Implementer→Tester→Reviewer→Critic→Release)
 
 | 항목 | 내용 |
 |------|------|
