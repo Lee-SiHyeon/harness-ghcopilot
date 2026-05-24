@@ -18,9 +18,9 @@
 const fs   = require('fs');
 const path = require('path');
 
-const toolName  = process.env.TOOL_NAME  || 'unknown';
-const agentName = process.env.AGENT_NAME || 'unknown';
-const sessionId = process.env.SESSION_ID || 'unknown';
+let toolName  = 'unknown';
+let agentName = 'unknown';
+let sessionId = 'unknown';
 
 let audit = null;
 try { audit = require('./audit-logger'); } catch (_) {}
@@ -163,19 +163,44 @@ function _updateRecentTools(tool) {
   } catch (_) {}
 }
 
-if (SKIP_LOG.has(toolName) && !ALWAYS_LOG.has(toolName) && toolName !== 'manage_todo_list') {
-  // 경량 메트릭 기록 후 즉시 continue (pipeline.jsonl 기록 생략)
-  _recordMetricsOnly(toolName);
-  process.stdout.write(JSON.stringify({ continue: true }));
-  process.exit(0);
-}
+async function main() {
+  // ── stdin 읽기 (PostToolUse hook 데이터) ─────────────────────────
+  let stdinData = null;
+  try {
+    if (!process.stdin.isTTY) {
+      const chunks = [];
+      let totalSize = 0;
+      for await (const chunk of process.stdin) {
+        totalSize += chunk.length;
+        if (totalSize > 2 * 1024 * 1024) { stdinData = null; break; }
+        chunks.push(chunk);
+      }
+      if (totalSize <= 2 * 1024 * 1024) {
+        const raw = Buffer.concat(chunks).toString('utf8').trim();
+        if (raw) stdinData = JSON.parse(raw);
+      }
+    }
+  } catch (_) {}
+
+  // stdin 필드 우선, env vars 폴백
+  toolName  = stdinData?.tool_name  || stdinData?.toolName  || process.env.TOOL_NAME  || 'unknown';
+  agentName = stdinData?.agent_name || stdinData?.agentName || process.env.AGENT_NAME || 'unknown';
+  sessionId = stdinData?.session_id || stdinData?.sessionId || process.env.SESSION_ID || 'unknown';
+
+  if (SKIP_LOG.has(toolName) && !ALWAYS_LOG.has(toolName) && toolName !== 'manage_todo_list') {
+    // 경량 메트릭 기록 후 즉시 continue (pipeline.jsonl 기록 생략)
+    _recordMetricsOnly(toolName);
+    process.stdout.write(JSON.stringify({ continue: true }));
+    return;
+  }
 
 // ── manage_todo_list: todo 상태를 파일로 영속화 ─────────────────────
 if (toolName === 'manage_todo_list') {
   let todoList = [];
   try {
-    const inp = JSON.parse(process.env.TOOL_INPUT || '{}');
-    todoList = inp.todoList || [];
+    let inp = stdinData?.tool_input || stdinData?.toolInput;
+    if (inp == null) { try { inp = JSON.parse(process.env.TOOL_INPUT || '{}'); } catch (_) { inp = {}; } }
+    todoList = (inp && typeof inp === 'object' ? inp : {}).todoList || [];
   } catch (_) {}
 
   if (todoList.length > 0) {
@@ -199,11 +224,11 @@ if (toolName === 'manage_todo_list') {
       continue: true,
       hookSpecificOutput: summary,
     }));
-    process.exit(0);
+    return;
   }
 
   process.stdout.write(JSON.stringify({ continue: true }));
-  process.exit(0);
+  return;
 }
 
 // ── 민감 패턴 redact (summarize 및 redactHint 공유) ─────────────────
@@ -221,10 +246,14 @@ function summarize(raw, maxLen = 300) {
   return redacted.length > maxLen ? redacted.slice(0, maxLen) + '…' : redacted;
 }
 
-let toolInput  = null;
-let toolResult = null;
-try { toolInput  = JSON.parse(process.env.TOOL_INPUT  || 'null'); } catch (_) { toolInput  = process.env.TOOL_INPUT  || null; }
-try { toolResult = JSON.parse(process.env.TOOL_RESULT || 'null'); } catch (_) { toolResult = process.env.TOOL_RESULT || null; }
+let toolInput = stdinData?.tool_input || stdinData?.toolInput || stdinData?.tool_args || stdinData?.toolArgs || null;
+if (toolInput == null) {
+  try { toolInput = JSON.parse(process.env.TOOL_INPUT || 'null'); } catch (_) { toolInput = process.env.TOOL_INPUT || null; }
+}
+let toolResult = stdinData?.tool_result || stdinData?.toolResult || stdinData?.tool_output || stdinData?.toolOutput || null;
+if (toolResult == null) {
+  try { toolResult = JSON.parse(process.env.TOOL_RESULT || 'null'); } catch (_) { toolResult = process.env.TOOL_RESULT || null; }
+}
 
 // ── 로그 엔트리 작성 ───────────────────────────────────────────
 const entry = {
@@ -373,3 +402,8 @@ process.stdout.write(JSON.stringify({
   continue: true,
   hookSpecificOutput: hookOutput,
 }));
+} // end main()
+
+main().catch(() => {
+  try { process.stdout.write(JSON.stringify({ continue: true })); } catch (_) {}
+}).finally(() => process.exit(0));

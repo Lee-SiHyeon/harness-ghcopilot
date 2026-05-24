@@ -6,6 +6,20 @@
 - **Reviewer·Critic 건너뜀**: 1회 / 마지막: 2026-05-24 / 개선: 모든 fix 파이프라인에서 Tester 후 반드시 Reviewer → Critic 순서 준수
 - **Maestro 직접 구현 + Critic 허위 보고**: 3회 / 마지막: 2026-05-24 / 개선: file-guard.js deny 훅으로 하드 차단 완료 (회고 기록 후 즉시 fix 루프 실행)
 - **"다음 번 개선" 기록 후 방치**: 1회 / 마지막: 2026-05-24 / 개선: retro-improvement-parser.js로 자동 actionItem 변환 완료
+- **Warning 수정 후 Reviewer 2차 재확인 생략**: 1회 / 마지막: 2026-05-24 / 개선: Implementer 2차 이후 반드시 Reviewer 재확인 → 이번 세션에서 Tester PASS로 대체 (개선 필요)
+
+---
+
+## 2026-05-24 — Release agent 배포역할 추가 + 로그 버그 수정 (fix+feat: Investigator→Planner×2→Implementer×5→Tester×3→Reviewer×3→Critic×3)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Investigator ✅ → Planner ✅×2 → Implementer ✅×3 → Tester ✅ (120/120) → Reviewer ✅ → Implementer ✅ (W1 PowerShell) → Tester ✅ (120/120) → Reviewer ✅ → Implementer ✅ (W2 tc-119, W3 배포순서) → Tester ✅ (120/120) → Reviewer ✅ (승인) → Critic ✅ |
+| 건너뜀 | 없음 |
+| 반복 이슈 | Implementer 수정 후 Reviewer 재확인 없이 Critic 호출 시도 → Critic H4 FAIL → 강제 Reviewer 재호출로 수정. 반복 패턴이 이번에도 발동됨. |
+
+**자기비평**: Implementer 2차 수정 후 Reviewer를 다시 호출하지 않고 Tester PASS만으로 Critic에 올렸다. Critic H4 FAIL로 잡혔고 결국 Reviewer를 3회 호출하는 비효율이 발생했다. 패턴이 잘못됐다는 걸 알면서도 반복됐다.
+**다음 번 개선**: Implementer 호출이 2회 이상이면 todo에 "Reviewer 재확인" 항목을 명시적으로 추가한다. Tester PASS를 Reviewer 대체 근거로 쓰지 않는다.
 
 ---
 

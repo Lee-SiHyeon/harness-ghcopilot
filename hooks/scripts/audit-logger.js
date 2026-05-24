@@ -69,10 +69,23 @@ function nextSeq() {
   try {
     let seq = 0;
     try {
-      const saved = JSON.parse(fs.readFileSync(SEQ_FILE, 'utf8'));
-      seq = (typeof saved.seq === 'number' ? saved.seq : 0) + 1;
+      const content = fs.readFileSync(SEQ_FILE, 'utf8');
+      if (content.trim()) {
+        const saved = JSON.parse(content);
+        seq = (typeof saved.seq === 'number' ? saved.seq : 0) + 1;
+      } else {
+        seq = 1;
+      }
     } catch (_) { seq = 1; }
-    fs.writeFileSync(SEQ_FILE, JSON.stringify({ seq, ts: new Date().toISOString() }), 'utf8');
+    const data = JSON.stringify({ seq, ts: new Date().toISOString() });
+    const tmp = SEQ_FILE + '.tmp';
+    try {
+      fs.writeFileSync(tmp, data, 'utf8');
+      fs.renameSync(tmp, SEQ_FILE);
+    } catch (_) {
+      fs.writeFileSync(SEQ_FILE, data, 'utf8');
+      try { fs.unlinkSync(tmp); } catch (_) {}
+    }
     return seq;
   } catch (_) {
     // fallback: timestamp-based unique value

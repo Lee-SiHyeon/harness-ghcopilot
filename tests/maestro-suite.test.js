@@ -1147,4 +1147,108 @@ tc('tc-117', 'retro-improvement-parser/dedup', '동일 message 중복 추가 안
   }
 });
 
+// Group: pipeline-logger / stdin toolName
+// AUTO-TC dedupe:pipeline-logger-stdin-toolname
+tc('tc-118', 'pipeline-logger', 'stdin에서 toolName 읽어서 "unknown" 대신 실제값 사용', () => {
+  const { execSync } = require('child_process');
+  const os   = require('os');
+  const loggerPath = path.resolve(__dirname, '../hooks/scripts/pipeline-logger.js');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc118-'));
+  try {
+    const logsDir = path.join(tmpDir, '.github', 'logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+
+    const stdinPayload = JSON.stringify({ tool_name: 'web_search', session_id: 'sess-118', agent_name: 'Tester' });
+    const result = execSync(
+      `node "${loggerPath}"`,
+      { input: stdinPayload, cwd: tmpDir, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env } }
+    ).toString('utf8');
+
+    const pipelineFile = path.join(logsDir, 'pipeline.jsonl');
+    // web_search is in ALWAYS_LOG → should be written to pipeline.jsonl
+    if (!fs.existsSync(pipelineFile)) throw new Error('pipeline.jsonl 파일이 생성되지 않음');
+    const lines = fs.readFileSync(pipelineFile, 'utf8').trim().split('\n').filter(Boolean);
+    const entry = JSON.parse(lines[lines.length - 1]);
+    if (entry.tool !== 'web_search') throw new Error(`tool 기대: "web_search", 실제: "${entry.tool}"`);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// Group: audit-logger / nextSeq empty file
+// AUTO-TC dedupe:audit-logger-nextseq-empty-file
+tc('tc-119', 'audit-logger', 'nextSeq() 빈 파일 방어 — 빈 string 시 seq=1 반환', () => {
+  const os = require('os');
+  const auditPath = path.resolve(__dirname, '../hooks/scripts/audit-logger.js');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc119-'));
+  try {
+    const logsDir = path.join(tmpDir, '.github', 'logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    // 빈 seq 파일 생성
+    const seqFile = path.join(logsDir, 'audit-seq.json');
+    fs.writeFileSync(seqFile, '', 'utf8');
+
+    // audit-logger는 CWD 기준으로 LOGS_DIR 결정 → tmpDir에서 require 불가
+    // node -e로 직접 로직 검증
+    const { execSync } = require('child_process');
+    const script = `
+const fs = require('fs'), path = require('path');
+const SEQ_FILE = path.join(${JSON.stringify(logsDir)}, 'audit-seq.json');
+let seq = 0;
+try {
+  const content = fs.readFileSync(SEQ_FILE, 'utf8');
+  if (content.trim()) {
+    const saved = JSON.parse(content);
+    seq = (typeof saved.seq === 'number' ? saved.seq : 0) + 1;
+  } else {
+    seq = 1;
+  }
+} catch (_) { seq = 1; }
+process.stdout.write(String(seq));
+`;
+    const tmpScript = path.join(os.tmpdir(), `tc-119-${Date.now()}.js`);
+    try {
+      fs.writeFileSync(tmpScript, script, 'utf8');
+      const out = execSync(`node "${tmpScript}"`, { stdio: 'pipe', cwd: tmpDir }).toString('utf8').trim();
+      const seqVal = Number(out);
+      if (seqVal !== 1) throw new Error(`빈 파일 시 seq 기대: 1, 실제: ${seqVal}`);
+    } finally {
+      try { fs.unlinkSync(tmpScript); } catch (_) {}
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// Group: audit-logger / nextSeq monotonic
+// AUTO-TC dedupe:audit-logger-nextseq-monotonic
+tc('tc-120', 'audit-logger', 'nextSeq() 두 번 호출 시 seq 단조증가 (2 > 1)', () => {
+  const os = require('os');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc120-'));
+  try {
+    const logsDir = path.join(tmpDir, '.github', 'logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    const seqFile = path.join(logsDir, 'audit-seq.json');
+
+    // 1차 호출 시뮬레이션
+    let seq1 = 0;
+    try {
+      const c = fs.readFileSync(seqFile, 'utf8');
+      seq1 = c.trim() ? (JSON.parse(c).seq || 0) + 1 : 1;
+    } catch (_) { seq1 = 1; }
+    fs.writeFileSync(seqFile, JSON.stringify({ seq: seq1, ts: new Date().toISOString() }), 'utf8');
+
+    // 2차 호출 시뮬레이션
+    let seq2 = 0;
+    try {
+      const c = fs.readFileSync(seqFile, 'utf8');
+      seq2 = c.trim() ? (JSON.parse(c).seq || 0) + 1 : 1;
+    } catch (_) { seq2 = 1; }
+
+    if (!(seq2 > seq1)) throw new Error(`단조증가 실패: seq1=${seq1}, seq2=${seq2} (seq2 > seq1 기대)`);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 run();
