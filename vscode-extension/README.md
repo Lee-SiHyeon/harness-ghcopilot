@@ -13,9 +13,9 @@
 |---|---|
 | **0** ChatParticipant 등록, 배지 강제 출력, vscode.lm 호출 | ✅ |
 | **1** 사용자 시나리오 대응(host 프로젝트 / standalone clone) + 설정 + F5 디버그 | ✅ |
-| 2 서브에이전트 호출 (Planner/Implementer/... 다회 vscode.lm) | ❌ |
-| 3 safety/file-guard tool API 인터셉터 이주 | ❌ |
-| 4 회고 자동 트리거 | ❌ |
+| **2** 멀티 에이전트 순차 실행기 + state TS 레이어 + agent loader | ✅ |
+| 3 safety/file-guard tool API 인터셉터 이주 + 도구 호출 지원 | ❌ |
+| 4 Tester FAIL → Implementer 재시도 루프, 회고 자동 트리거 | ❌ |
 | 5 기존 hook 비활성화 | ❌ |
 
 ## 사용 시나리오
@@ -96,7 +96,10 @@ npm install
   "maestroChat.routerTimeoutMs": 15000,
 
   // 디버깅용: harness 경로, model 이름, userMessage head 등을 응답에 표시.
-  "maestroChat.debug": false
+  "maestroChat.debug": false,
+
+  // Phase 1 동작 (단일 LLM 호출, 빠름) vs Phase 2 동작 (파이프라인 step마다 호출, 진짜 멀티 에이전트)
+  "maestroChat.executorMode": "passthrough"   // 또는 "multi-agent"
 }
 ```
 
@@ -149,11 +152,29 @@ for await (fragment) stream.markdown(fragment)
 | 매번 regex 폴백으로 분류 | `.env`에 `GITHUB_PAT=ghp_...` 설정하면 gpt-4o-mini 사용. `.env`는 harness 폴더의 부모(cwd)에 둬야 함 |
 | F5 눌렀는데 Extension Host가 안 뜸 | `.vscode/launch.json` 있는지 확인. 또는 `Run and Debug → Run Extension` 선택 후 ▶ |
 
-## 알려진 한계 (Phase 1)
+## 실행 모드
 
-- 서브에이전트는 실제로 호출하지 않는다 — userMessage를 LLM에 전달만. todo 가이드 등의 지시를 LLM이 따를지는 여전히 확률적 (단, 배지 UI 출력은 100%)
+### passthrough (기본, Phase 1 동작)
+분류 → 배지 출력 → Maestro userMessage 전체를 **단일 LLM 호출**. 빠르지만 LLM이 multi-agent 흐름을 스스로 모방해야 한다.
+
+### multi-agent (Phase 2)
+파이프라인 각 step마다 **별도 vscode.lm 호출**:
+- system: `.github/agents/{agent}.agent.md` 본문
+- user: Maestro 컨텍스트 + 이전 step 출력 + 원본 요청
+- 각 step의 출력은 `### ⚙️ [N/M] {Agent} 실행 중…` 헤더와 함께 스트리밍
+- `logs/subagent-flow.jsonl`, `logs/pipeline.jsonl` 자동 기록 (기존 분석 도구 호환)
+
+토큰 더 소비, 시간 더 걸림. 진짜 multi-agent 추론이 필요할 때 사용.
+
+`settings.json`에서 `maestroChat.executorMode` 전환.
+
+## 알려진 한계 (Phase 2)
+
+- multi-agent 모드에서도 **도구 호출 안 됨** — Implementer가 "이렇게 수정할 것입니다"라고 텍스트로만 답함 (실제 파일 수정 X). Phase 3에서 vscode.lm tools API로 해결.
+- Tester FAIL 시 Implementer 재호출 루프 없음. Phase 4 예정.
+- 병렬 실행 없음. 모든 step 순차.
 - 매 turn 새 프로세스로 router 호출 (~수십 ms 오버헤드)
-- vscode.lm으로 받는 모델은 Copilot 설정 따름 (사용자가 model picker로 선택한 모델 사용)
+- vscode.lm으로 받는 모델은 Copilot 설정 따름
 
 ## 다음 단계
 

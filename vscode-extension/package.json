@@ -46,6 +46,16 @@
           "type": "boolean",
           "default": false,
           "description": "true로 두면 router stdout/stderr와 발견된 harness path를 응답에 표시 (디버깅용)"
+        },
+        "maestroChat.executorMode": {
+          "type": "string",
+          "default": "passthrough",
+          "enum": ["passthrough", "multi-agent"],
+          "enumDescriptions": [
+            "Phase 1 동작: 분류 → 배지 출력 → Maestro userMessage 전체를 단일 LLM 호출. 빠르지만 LLM이 멀티 에이전트 흐름을 스스로 모방해야 함.",
+            "Phase 2 동작: 파이프라인의 각 step마다 별개 vscode.lm 호출 (시스템=해당 agent의 .agent.md 본문). 진짜 멀티 에이전트 실행. 토큰 더 소비, 시간 더 걸림."
+          ],
+          "description": "응답 생성 방식: passthrough(단일 호출) 또는 multi-agent(파이프라인 step별 호출)"
         }
       }
     }
