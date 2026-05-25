@@ -3,6 +3,7 @@ import { AgentDefinition, loadAgent } from '../agents/loader';
 import { HarnessPaths } from '../state/paths';
 import { appendFlow, newCorrelationId } from '../state/subagent-flow';
 import { appendPipelineStep } from '../state/pipeline-log';
+import { MAESTRO_TOOL_NAMES } from '../tools/registry';
 
 export interface ExecutorContext {
   paths: HarnessPaths;
@@ -18,6 +19,8 @@ export interface ExecutorContext {
   streamAgentOutputs?: boolean;
   maxPriorOutputChars?: number;
   maxLoggedOutputChars?: number;
+  toolInvocationToken?: vscode.ChatParticipantToolToken;
+  enableTools?: boolean;
   logger?: {
     info(message: string, data?: unknown): void;
     warn(message: string, data?: unknown): void;
@@ -104,7 +107,7 @@ export async function executePipeline(
     }
 
     const userMessage = buildUserMessage(ctx, agent, results);
-    const messages = [
+    const messages: vscode.LanguageModelChatMessage[] = [
       vscode.LanguageModelChatMessage.User(agent.systemPrompt),
       vscode.LanguageModelChatMessage.User(userMessage),
     ];
@@ -112,14 +115,7 @@ export async function executePipeline(
     let output = '';
     let errorMessage: string | undefined;
     try {
-      const response = await ctx.model.sendRequest(messages, {}, ctx.cancellation);
-      for await (const fragment of response.text) {
-        if (ctx.cancellation.isCancellationRequested) break;
-        output += fragment;
-        if (ctx.streamAgentOutputs !== false) {
-          ctx.stream.markdown(fragment);
-        }
-      }
+      output = await runAgentModelLoop(ctx, messages);
       if (ctx.streamAgentOutputs === false) {
         ctx.stream.markdown(`_(출력 ${output.length} chars 생성됨 — 로그에 기록)_\n`);
       }
@@ -166,6 +162,59 @@ export async function executePipeline(
 
   ctx.stream.markdown(`\n\n---\n\n✅ 파이프라인 완료 (${results.length}개 단계).\n`);
   return results;
+}
+
+async function runAgentModelLoop(
+  ctx: ExecutorContext,
+  messages: vscode.LanguageModelChatMessage[],
+): Promise<string> {
+  const tools = ctx.enableTools === false
+    ? []
+    : vscode.lm.tools.filter(t => MAESTRO_TOOL_NAMES.includes(t.name));
+  let output = '';
+  const maxRounds = tools.length > 0 ? 4 : 1;
+
+  for (let round = 0; round < maxRounds; round++) {
+    const response = await ctx.model.sendRequest(messages, {
+      tools,
+      toolMode: tools.length > 0 ? vscode.LanguageModelChatToolMode.Auto : undefined,
+      justification: 'Maestro extension pipeline execution with guarded local tools.',
+    }, ctx.cancellation);
+
+    const assistantParts: Array<vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart> = [];
+    const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+
+    for await (const part of response.stream) {
+      if (ctx.cancellation.isCancellationRequested) break;
+      if (part instanceof vscode.LanguageModelTextPart) {
+        assistantParts.push(part);
+        output += part.value;
+        if (ctx.streamAgentOutputs !== false) {
+          ctx.stream.markdown(part.value);
+        }
+      } else if (part instanceof vscode.LanguageModelToolCallPart) {
+        assistantParts.push(part);
+        toolCalls.push(part);
+        ctx.logger?.info('tool call requested', { name: part.name, input: part.input });
+      }
+    }
+
+    if (toolCalls.length === 0) break;
+    messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+
+    for (const call of toolCalls) {
+      const result = await vscode.lm.invokeTool(call.name, {
+        input: call.input,
+        toolInvocationToken: ctx.toolInvocationToken,
+      }, ctx.cancellation);
+      messages.push(vscode.LanguageModelChatMessage.User([
+        new vscode.LanguageModelToolResultPart(call.callId, result.content),
+      ]));
+      ctx.logger?.info('tool call completed', { name: call.name, callId: call.callId });
+    }
+  }
+
+  return output;
 }
 
 function buildUserMessage(

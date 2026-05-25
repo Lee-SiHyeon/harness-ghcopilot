@@ -43,6 +43,26 @@ export function loadActionItemsCount(paths: HarnessPaths): number {
   return loadActionItems(paths).length;
 }
 
+export function appendActionItems(paths: HarnessPaths, items: ActionItem[]): void {
+  if (items.length === 0) return;
+  const draft = readDraft(paths);
+  const existing = Array.isArray(draft.actionItems) ? draft.actionItems : [];
+  const seen = new Set(existing.map(i => i.message).filter(Boolean));
+  for (const item of items) {
+    if (!item.message || seen.has(item.message)) continue;
+    existing.push(item);
+    seen.add(item.message);
+  }
+  draft.actionItems = existing;
+  draft.ts = new Date().toISOString();
+  writeDraft(paths, draft);
+}
+
+export function updateRetrospectiveDraft(paths: HarnessPaths, partial: DraftFile): void {
+  const draft = readDraft(paths);
+  writeDraft(paths, { ...draft, ...partial, ts: new Date().toISOString() });
+}
+
 /** Maestro가 actionItems를 소비한 뒤 호출 — 빈 배열로 reset. */
 export function clearActionItems(paths: HarnessPaths): void {
   const draft = readDraft(paths);

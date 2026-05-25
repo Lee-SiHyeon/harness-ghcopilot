@@ -15,8 +15,8 @@
 | **1** 사용자 시나리오 대응(host 프로젝트 / standalone clone) + 설정 + F5 디버그 | ✅ |
 | **2** 멀티 에이전트 순차 실행기 + state TS 레이어 + agent loader | ✅ |
 | **3** 사이드바 UI + 상태바 + GITHUB_PAT 편집 + vscode.lm 도구 등록(가드 통합) | ✅ |
-| 3.5 executor에서 tool calling 활용 (Implementer가 실제 파일 수정) | ❌ |
-| 4 Tester FAIL → Implementer 재시도 루프, 회고 자동 트리거 | ❌ |
+| **3.5** executor tool-calling + 파일 변경 test-gate + retro/actionItems 기록 | ✅ |
+| 4 Tester FAIL → Implementer 재시도 루프 | ❌ |
 | 5 기존 hook 비활성화 | ❌ |
 
 ## 사용 시나리오
@@ -187,14 +187,14 @@ for await (fragment) stream.markdown(fragment)
 | Maestro: Refresh Sidebar | 수동 새로고침 |
 | Maestro: Show Output Log | `Output: Maestro Chat` 채널 열기 |
 
-### vscode.lm 도구 (Phase 3 스캐폴딩)
+### vscode.lm 도구 (Phase 3.5 실행 연결)
 | 도구 | 가드 |
 |---|---|
 | `maestro_read_file` | workspace 외부 deny |
 | `maestro_write_file` | `.env`/키 파일 deny, `.github/{hooks,agents,...}` ask, `maestro.agent.md` ask |
-| `maestro_run_terminal` | `meta/guards.json` destructiveCommands 매칭 시 ask + 자동 실행 X (사용자가 Enter) |
+| `maestro_run_terminal` | `meta/guards.json` destructiveCommands 매칭 시 deny, 안전 명령은 extension host에서 실행 |
 
-> ⚠️ Phase 3에서는 도구가 **등록만** 되어 있고 executor는 아직 사용하지 않는다. Phase 3.5에서 executor가 Implementer를 부를 때 `requestOptions.tools`로 전달 예정.
+multi-agent 모드에서는 각 에이전트 LLM 호출에 위 도구가 전달된다. 파일 쓰기 성공 시 `logs/test-gate-state.json`이 stale 처리되고, 테스트 명령 실행 시 `logs/test-evidence.json`에 PASS/FAIL 증거가 기록된다.
 
 ## 실행 모드
 
@@ -204,6 +204,8 @@ for await (fragment) stream.markdown(fragment)
 - user: Maestro 컨텍스트 + 이전 step 출력 + 원본 요청
 - 각 step의 출력은 `### ⚙️ [N/M] {Agent} 실행 중…` 헤더와 함께 스트리밍
 - `logs/subagent-flow.jsonl`, `logs/pipeline.jsonl` 자동 기록 (기존 분석 도구 호환)
+- 실행 종료 시 `logs/retrospective-draft.json`과 `logs/retro.jsonl`에 extension 실행 회고를 기록
+- 누락된 필수 에이전트(Tester/Critic 등)는 actionItems로 남겨 다음 실행에서 다시 주입
 
 토큰 더 소비, 시간 더 걸리지만 extension이 파이프라인 step을 실제로 순차 실행한다.
 
@@ -219,10 +221,8 @@ for await (fragment) stream.markdown(fragment)
 
 `settings.json`에서 `maestroChat.executorMode` 전환.
 
-## 알려진 한계 (Phase 3)
+## 알려진 한계 (Phase 3.5)
 
-- 도구는 등록만 됨 — executor가 아직 사용하지 않음 → Phase 3.5
-- `maestro_run_terminal`은 터미널에 텍스트만 입력 (자동 실행 X) — Phase 4에서 결과 캡처와 함께 도입
 - Tester FAIL 시 Implementer 재호출 루프 없음 — Phase 4
 - 병렬 실행 없음
 - 일반 요청은 매 turn 새 프로세스로 router 호출 (~수십 ms 오버헤드). deterministic local route는 router를 건너뜀

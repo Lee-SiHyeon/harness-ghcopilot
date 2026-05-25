@@ -9,6 +9,16 @@ const { loadAgent } = require('../out/agents/loader.js');
 const { HarnessPaths } = require('../out/state/paths.js');
 const { checkCommand, checkFileWrite, loadGuards } = require('../out/tools/guards.js');
 const { isGitChangeQuery, renderGitChangeReport } = require('../out/local-git.js');
+const {
+  determineTestResult,
+  getGateState,
+  isEvidenceValid,
+  isTestCommand,
+  markFileChanged,
+  recordTestEvidence,
+} = require('../out/state/test-gate.js');
+const { buildPipelineActionItems, finalizeRetrospective } = require('../out/state/retrospective.js');
+const { loadActionItems } = require('../out/state/action-items.js');
 
 function mkdirp(p) {
   fs.mkdirSync(p, { recursive: true });
@@ -166,6 +176,53 @@ test('local git query detector and renderer are deterministic', () => {
   assert.match(report, /현재 git 기준 변경/);
   assert.match(report, /M file\.txt/);
   assert.match(report, /abc123/);
+});
+
+test('test-gate marks writes stale and accepts newer PASS evidence', () => {
+  assert.strictEqual(isTestCommand('npm test'), true);
+  assert.strictEqual(isTestCommand('node tests/maestro-suite.test.js'), true);
+  assert.strictEqual(isTestCommand('echo hello'), false);
+  assert.strictEqual(determineTestResult(0, 'all good'), 'PASS');
+  assert.strictEqual(determineTestResult(1, 'failed'), 'FAIL');
+
+  markFileChanged(fixture.paths, 'maestro_write_file', path.join(fixture.root, 'src', 'index.ts'));
+  const gate = getGateState(fixture.paths);
+  assert.ok(gate.requiredSince);
+  assert.strictEqual(isEvidenceValid(fixture.paths), false);
+
+  recordTestEvidence(fixture.paths, {
+    command: 'npm test',
+    result: 'PASS',
+    status: 'PASS',
+    exitCode: 0,
+    evidence: 'PASS',
+  });
+  assert.strictEqual(isEvidenceValid(fixture.paths), true);
+});
+
+test('retrospective generates action items for missing suite agents', () => {
+  const planned = ['Planner', 'Implementer', 'Tester', 'Critic', 'Release'];
+  const results = [
+    { agentName: 'Planner', output: 'plan', correlationId: 'a', durationMs: 1 },
+    { agentName: 'Implementer', output: 'impl', correlationId: 'b', durationMs: 1 },
+    { agentName: 'Release', output: 'done', correlationId: 'c', durationMs: 1 },
+  ];
+  const items = buildPipelineActionItems('implement', planned, results);
+  assert.ok(items.some(i => i.agent === 'Tester'));
+  assert.ok(items.some(i => i.agent === 'Critic'));
+
+  markFileChanged(fixture.paths, 'maestro_write_file', path.join(fixture.root, 'src', 'changed.ts'));
+  finalizeRetrospective(fixture.paths, {
+    sessionId: 'session-test',
+    intent: 'implement',
+    plannedPipeline: planned,
+    results,
+    durationMs: 123,
+  });
+  const stored = loadActionItems(fixture.paths);
+  assert.ok(stored.some(i => i.agent === 'Tester'));
+  assert.ok(stored.some(i => i.source === 'testGate'));
+  assert.ok(fs.existsSync(fixture.paths.retroJsonlPath));
 });
 
 if (process.exitCode) {

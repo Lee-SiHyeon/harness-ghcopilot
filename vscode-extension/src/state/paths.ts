@@ -20,6 +20,18 @@ export class HarnessPaths {
   log(name: string): string {
     return path.join(this.logsDir, name);
   }
+  get testEvidencePath(): string {
+    return this.log('test-evidence.json');
+  }
+  get testGateStatePath(): string {
+    return this.log('test-gate-state.json');
+  }
+  get retrospectiveDraftPath(): string {
+    return this.log('retrospective-draft.json');
+  }
+  get retroJsonlPath(): string {
+    return this.log('retro.jsonl');
+  }
   meta(name: string): string {
     return path.join(this.metaDir, name);
   }

@@ -1,20 +1,26 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { exec } from 'child_process';
 import { HarnessPaths } from '../state/paths';
 import { checkCommand, checkFileWrite } from './guards';
+import { appendPipelineStep } from '../state/pipeline-log';
+import { determineTestResult, isTestCommand, markFileChanged, recordTestEvidence } from '../state/test-gate';
 
 /**
- * vscode.lm 도구 스캐폴딩 — 단계적 이주.
+ * vscode.lm 도구 registry.
  *
- * Phase 3에서 등록만 하고 executor에서 실제 사용은 Phase 3.5로 미룬다.
- * (executor에 tool-calling 통합은 별도 PR로 깔끔하게 분리)
- *
- * 모든 도구는 가드를 먼저 호출하고, deny면 PreparedToolInvocation으로
- * 사용자에게 명시적 확인을 요구한다.
+ * executor가 각 agent LLM 호출에 이 도구들을 전달한다. 모든 쓰기/실행 도구는
+ * meta/guards.json SSOT를 먼저 확인하고, deny 판정이면 실행하지 않는다.
  */
 
 type ResolverFn = () => string | null;
+
+export const MAESTRO_TOOL_NAMES = [
+  'maestro_read_file',
+  'maestro_write_file',
+  'maestro_run_terminal',
+];
 
 interface ReadFileInput {
   path: string;
@@ -37,6 +43,34 @@ function requireHarness(resolver: ResolverFn): HarnessPaths {
   return new HarnessPaths(p);
 }
 
+function harnessRoot(paths: HarnessPaths): string {
+  return path.dirname(path.resolve(paths.harnessPath));
+}
+
+function resolveInsideHarnessRoot(paths: HarnessPaths, targetPath: string): { abs: string; rel: string } {
+  const root = harnessRoot(paths);
+  const abs = path.isAbsolute(targetPath) ? path.resolve(targetPath) : path.resolve(root, targetPath);
+  const rel = path.relative(root, abs);
+  return { abs, rel };
+}
+
+function isOutsideHarnessRoot(rel: string): boolean {
+  return rel.startsWith('..') || path.isAbsolute(rel);
+}
+
+function execCommand(command: string, cwd: string): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+  return new Promise(resolve => {
+    exec(command, { cwd, timeout: 120_000, windowsHide: true }, (err, stdout, stderr) => {
+      const anyErr = err as NodeJS.ErrnoException & { code?: number };
+      resolve({
+        exitCode: typeof anyErr?.code === 'number' ? anyErr.code : (err ? 1 : 0),
+        stdout: String(stdout || ''),
+        stderr: String(stderr || ''),
+      });
+    });
+  });
+}
+
 export function registerTools(
   context: vscode.ExtensionContext,
   resolver: ResolverFn,
@@ -45,10 +79,8 @@ export function registerTools(
   context.subscriptions.push(vscode.lm.registerTool<ReadFileInput>('maestro_read_file', {
     async invoke(opts, _token) {
       const paths = requireHarness(resolver);
-      const harnessRoot = path.dirname(path.resolve(paths.harnessPath));
-      const abs = path.resolve(harnessRoot, opts.input.path);
-      const rel = path.relative(harnessRoot, abs);
-      if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      const { abs, rel } = resolveInsideHarnessRoot(paths, opts.input.path);
+      if (isOutsideHarnessRoot(rel)) {
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(`거부: workspace 외부 경로 (${opts.input.path})`),
         ]);
@@ -98,11 +130,21 @@ export function registerTools(
           new vscode.LanguageModelTextPart(`거부: ${check.reason}`),
         ]);
       }
-      const harnessRoot = path.dirname(path.resolve(paths.harnessPath));
-      const abs = path.resolve(harnessRoot, opts.input.path);
+      const { abs, rel } = resolveInsideHarnessRoot(paths, opts.input.path);
+      if (isOutsideHarnessRoot(rel)) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(`거부: workspace 외부 경로 (${opts.input.path})`),
+        ]);
+      }
       try {
         fs.mkdirSync(path.dirname(abs), { recursive: true });
         fs.writeFileSync(abs, opts.input.content, 'utf8');
+        markFileChanged(paths, 'maestro_write_file', abs);
+        appendPipelineStep(paths, {
+          step: 'tool:maestro_write_file',
+          output: `쓰기 완료: ${rel}`,
+          extra: { toolName: 'maestro_write_file', path: rel, chars: opts.input.content.length },
+        });
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(`쓰기 완료: ${opts.input.path} (${opts.input.content.length} chars)`),
         ]);
@@ -132,18 +174,44 @@ export function registerTools(
       };
     },
     async invoke(opts, _token) {
-      // Phase 3에서는 실제 실행 대신 VS Code 터미널을 열어 사용자에게 보여준다.
-      // 실제 execSync는 Phase 4에서 결과 캡처와 함께 도입.
-      const terminal = vscode.window.createTerminal({
-        name: 'Maestro',
-        cwd: opts.input.cwd,
+      const paths = requireHarness(resolver);
+      const check = checkCommand(paths, opts.input.command);
+      if (check.decision === 'deny') {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(`거부: 파괴적 명령 감지 (${check.matched.join(', ')})`),
+        ]);
+      }
+      const root = harnessRoot(paths);
+      let cwd = root;
+      if (opts.input.cwd) {
+        const resolved = resolveInsideHarnessRoot(paths, opts.input.cwd);
+        if (isOutsideHarnessRoot(resolved.rel)) {
+          return new vscode.LanguageModelToolResult([
+            new vscode.LanguageModelTextPart(`거부: workspace 외부 cwd (${opts.input.cwd})`),
+          ]);
+        }
+        cwd = resolved.abs;
+      }
+      const result = await execCommand(opts.input.command, cwd);
+      const combined = [result.stdout, result.stderr].filter(Boolean).join('\n');
+      if (isTestCommand(opts.input.command)) {
+        const testResult = determineTestResult(result.exitCode, combined);
+        recordTestEvidence(paths, {
+          command: opts.input.command,
+          result: testResult,
+          status: testResult,
+          exitCode: result.exitCode,
+          evidence: combined.split('\n').slice(-40).join('\n'),
+        });
+      }
+      appendPipelineStep(paths, {
+        step: 'tool:maestro_run_terminal',
+        output: combined.slice(0, 4000),
+        extra: { toolName: 'maestro_run_terminal', command: opts.input.command, exitCode: result.exitCode },
       });
-      terminal.show();
-      terminal.sendText(opts.input.command, false);
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          `명령을 터미널에 입력했습니다 (자동 실행하지 않음): \`${opts.input.command}\`. ` +
-          `Enter를 눌러 실행하세요. Phase 4에서 자동 실행 + 결과 캡처가 도입됩니다.`,
+          `exitCode=${result.exitCode}\n\nSTDOUT:\n${result.stdout || '(empty)'}\n\nSTDERR:\n${result.stderr || '(empty)'}`,
         ),
       ]);
     },

@@ -13,6 +13,7 @@ import { registerTools } from './tools/registry';
 import { HarnessWatcher } from './watcher';
 import { createLogger, MaestroLogger } from './logging';
 import { inspectGitChanges, isGitChangeQuery, renderGitChangeReport } from './local-git';
+import { finalizeRetrospective } from './state/retrospective';
 
 const PARTICIPANT_ID = 'maestro';
 const CONFIG_SECTION = 'maestroChat';
@@ -242,7 +243,8 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
       stream.markdown(`> [debug] pipeline steps: ${JSON.stringify(parsed.pipeline)}\n\n`);
     }
     const actionCount = loadActionItemsCount(paths);
-    await executePipeline(parsed.pipeline, {
+    const startedAt = Date.now();
+    const results = await executePipeline(parsed.pipeline, {
       paths,
       pipelineId: parsed.intent || 'unknown',
       sessionId,
@@ -255,12 +257,21 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
       streamAgentOutputs,
       maxPriorOutputChars,
       maxLoggedOutputChars,
+      toolInvocationToken: request.toolInvocationToken,
+      enableTools: true,
       logger: logger ?? undefined,
     });
     if (actionCount > 0) {
       clearActionItems(paths);
       if (debug) stream.markdown(`\n> [debug] cleared ${actionCount} actionItems after multi-agent run\n`);
     }
+    finalizeRetrospective(paths, {
+      sessionId,
+      intent: parsed.intent || 'unknown',
+      plannedPipeline: parsed.pipeline,
+      results,
+      durationMs: Date.now() - startedAt,
+    });
     return;
   }
 
