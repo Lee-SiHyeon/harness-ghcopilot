@@ -179,8 +179,11 @@ const DEFAULT_GUIDE = [
   // NOTE: prompt는 의도적으로 stdin에서 재할당하지 않음 — USER_PROMPT env var만 사용.
   // SubagentStart payload의 user_message는 현재 가이드 생성에 불필요.
   const rawAgentId = stdinData?.agent_id || '';
+  const rawAgentType = stdinData?.agent_type || '';
+  // VS Code builtin sentinel값과 Tool Call ID 필터링
+  const filteredAgentType = (rawAgentType === 'default' || isToolCallId(rawAgentType)) ? '' : rawAgentType;
   agentName = (
-    stdinData?.agent_type ||
+    filteredAgentType ||
     (isToolCallId(rawAgentId) ? '' : rawAgentId) ||
     stdinData?.agent_name || stdinData?.agentName || agentName
   ).trim();

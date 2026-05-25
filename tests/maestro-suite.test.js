@@ -2180,4 +2180,22 @@ tc('tc-184', 'hook-stdin-dump / syntax-and-structure', 'hook-stdin-dump.js 문�
   if (!src.includes('for await') && !src.includes('async')) throw new Error('hook-stdin-dump.js에 async stdin 읽기 없음');
 });
 
+tc('tc-185', 'todo-inject-subagent / sentinel-filter', 'todo-inject-subagent.js sentinel filter', () => {
+  const src = readSrc('todo-inject-subagent.js');
+  if (!src.includes('filteredAgentType')) throw new Error('filteredAgentType missing');
+  if (!src.includes("=== 'default'")) throw new Error('default filter missing');
+});
+
+tc('tc-186', 'subagent-stop-logger / sentinel-filter', 'subagent-stop-logger.js sentinel filter', () => {
+  const src = readSrc('subagent-stop-logger.js');
+  if (!src.includes('filteredAgentType')) throw new Error('filteredAgentType missing');
+  if (!src.includes("=== 'default'")) throw new Error('default filter missing');
+});
+
+tc('tc-187', 'maestro-router / MaestroSessionStart', 'maestro-router.js MaestroSessionStart logging', () => {
+  const src = readSrc('maestro-router.js');
+  if (!src.includes('MaestroSessionStart')) throw new Error('MaestroSessionStart missing');
+  if (!src.includes('last-maestro-session.json')) throw new Error('dedup file ref missing');
+});
+
 run();

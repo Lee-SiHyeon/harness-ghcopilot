@@ -60,6 +60,26 @@ if (subagentName) {
 const KNOWN_SUBAGENTS = new Set(['Planner','Implementer','Tester','Reviewer','Documenter','Investigator','Release','Critic','Scout','Context7 Docs Agent']);
 const isMaestroContext = !KNOWN_SUBAGENTS.has(agentName);
 if (isMaestroContext) {
+  // ── MaestroSessionStart 기록 (세션당 1회, subagent-flow.jsonl) ─
+  try {
+    const sessionId = (process.env.SESSION_ID || '').trim();
+    if (sessionId && audit) {
+      const logsDir         = path.resolve(process.cwd(), '.github', 'logs');
+      const lastMaestroFile = path.join(logsDir, 'last-maestro-session.json');
+      let lastSessionId     = null;
+      try { lastSessionId = JSON.parse(fs.readFileSync(lastMaestroFile, 'utf8')).sessionId || null; } catch (_) {}
+      if (lastSessionId !== sessionId) {
+        audit.appendSubagentFlow({
+          event:     'MaestroSessionStart',
+          agentName: agentName || 'Maestro',
+          sessionId,
+          ts:        new Date().toISOString(),
+        });
+        try { fs.writeFileSync(lastMaestroFile, JSON.stringify({ sessionId, ts: new Date().toISOString() }, null, 2), 'utf8'); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+
   // ── 인터럽트 감지: in-progress 항목 확인 ─────────────────────
   function getInProgressTodos() {
     const stateFile = path.resolve(process.cwd(), '.github', 'logs', 'current-todos.json');

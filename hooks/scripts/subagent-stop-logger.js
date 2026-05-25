@@ -52,9 +52,12 @@ function tryAudit(obj) {
         if (raw) stdinData = JSON.parse(raw);
       }
     } catch (_) {}
-    const rawAgentId = stdinData?.agent_id || '';
-    const agentName  = (
-      stdinData?.agent_type ||
+    const rawAgentId   = stdinData?.agent_id || '';
+    const rawAgentType = stdinData?.agent_type || '';
+    // VS Code builtin sentinel값과 Tool Call ID 필터링
+    const filteredAgentType = (rawAgentType === 'default' || isToolCallId(rawAgentType)) ? '' : rawAgentType;
+    const agentName = (
+      filteredAgentType ||
       (isToolCallId(rawAgentId) ? '' : rawAgentId) ||
       stdinData?.agent_name || stdinData?.agentName ||
       process.env.SUBAGENT_NAME || process.env.AGENT_NAME || ''
