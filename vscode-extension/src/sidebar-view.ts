@@ -4,6 +4,7 @@ import { HarnessPaths } from './state/paths';
 import { loadActionItems, ActionItem } from './state/action-items';
 import { getGateState, getTestEvidence, isEvidenceValid } from './state/test-gate';
 import { envPathFor, getEnvValue } from './env-file';
+import { inspectMcpStatus } from './mcp-status';
 
 const KNOWN_AGENTS = new Set([
   'Planner', 'Implementer', 'Tester', 'Reviewer', 'Critic',
@@ -119,6 +120,7 @@ export class MaestroTreeProvider implements vscode.TreeDataProvider<MaestroTreeI
     return [
       this.buildPatNode(harnessPath),
       this.buildMigrationNode(),
+      this.buildMcpNode(harnessPath),
       this.buildSessionNode(paths),
       this.buildTestGateNode(paths),
       this.buildTodosNode(paths),
@@ -154,6 +156,79 @@ export class MaestroTreeProvider implements vscode.TreeDataProvider<MaestroTreeI
       vscode.TreeItemCollapsibleState.Expanded,
       children,
       { iconId: 'git-compare', description: useLegacyRouter || legacyMcp ? 'legacy 병행' : 'extension primary' },
+    );
+  }
+
+  private buildMcpNode(harnessPath: string): MaestroTreeItem {
+    const status = inspectMcpStatus(harnessPath);
+    const ok = status.registered && status.distExists && status.pointsToHarness;
+    const shared = status.sharedState;
+    const stateCount = Object.values(shared).filter(Boolean).length;
+    const children: MaestroTreeItem[] = [
+      new MaestroTreeItem(
+        status.registered ? 'github-state 등록됨' : 'github-state 미등록',
+        'mcp-registered',
+        vscode.TreeItemCollapsibleState.None,
+        undefined,
+        {
+          iconId: status.registered ? 'pass' : 'warning',
+          description: status.configPath || 'mcp.json 없음',
+          tooltip: status.configPath || 'VS Code/User/mcp.json에서 github-state를 찾지 못했습니다.',
+        },
+      ),
+      new MaestroTreeItem(
+        status.distExists ? 'dist/index.js 있음' : 'dist/index.js 없음',
+        'mcp-dist',
+        vscode.TreeItemCollapsibleState.None,
+        undefined,
+        { iconId: status.distExists ? 'pass' : 'error' },
+      ),
+      new MaestroTreeItem(
+        status.pointsToHarness ? '현재 harness를 가리킴' : '다른 harness 또는 미등록',
+        'mcp-target',
+        vscode.TreeItemCollapsibleState.None,
+        undefined,
+        {
+          iconId: status.pointsToHarness ? 'pass' : 'warning',
+          tooltip: (status.args || []).join(' '),
+        },
+      ),
+      new MaestroTreeItem(
+        `도구 ${status.toolNames.length}개`,
+        'mcp-tools',
+        vscode.TreeItemCollapsibleState.Collapsed,
+        status.toolNames.map(name => new MaestroTreeItem(
+          name,
+          'mcp-tool',
+          vscode.TreeItemCollapsibleState.None,
+          undefined,
+          { iconId: 'symbol-method' },
+        )),
+        { iconId: 'tools' },
+      ),
+      new MaestroTreeItem(
+        `공유 상태 파일 ${stateCount}/6`,
+        'mcp-shared-state',
+        vscode.TreeItemCollapsibleState.Collapsed,
+        Object.entries(shared).map(([name, exists]) => new MaestroTreeItem(
+          name,
+          'mcp-state-file',
+          vscode.TreeItemCollapsibleState.None,
+          undefined,
+          { iconId: exists ? 'pass' : 'circle-outline' },
+        )),
+        { iconId: stateCount === 6 ? 'pass' : 'database' },
+      ),
+    ];
+    return new MaestroTreeItem(
+      'MCP github-state',
+      'mcp',
+      vscode.TreeItemCollapsibleState.Collapsed,
+      children,
+      {
+        iconId: ok ? 'plug' : 'warning',
+        description: ok ? 'ready' : '확인 필요',
+      },
     );
   }
 

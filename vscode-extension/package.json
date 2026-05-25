@@ -44,6 +44,11 @@
           "id": "maestroChat.sidebar",
           "name": "Maestro 상태",
           "icon": "$(symbol-event)"
+        },
+        {
+          "id": "maestroChat.mcp",
+          "name": "MCP 상태",
+          "icon": "$(plug)"
         }
       ]
     },
@@ -81,6 +86,11 @@
         "icon": "$(output)"
       },
       {
+        "command": "maestroChat.openMcpConfig",
+        "title": "Maestro: Open MCP Config",
+        "icon": "$(json)"
+      },
+      {
         "command": "maestroChat.runExtensionTests",
         "title": "Maestro: Run Extension Tests",
         "icon": "$(beaker)"
@@ -111,6 +121,16 @@
         {
           "command": "maestroChat.runExtensionTests",
           "when": "view == maestroChat.sidebar",
+          "group": "navigation"
+        },
+        {
+          "command": "maestroChat.openMcpConfig",
+          "when": "view == maestroChat.mcp",
+          "group": "navigation"
+        },
+        {
+          "command": "maestroChat.refresh",
+          "when": "view == maestroChat.mcp",
           "group": "navigation"
         }
       ],

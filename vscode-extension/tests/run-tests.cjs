@@ -11,6 +11,7 @@ const { checkCommand, checkFileWrite, loadGuards } = require('../out/tools/guard
 const { isGitChangeQuery, renderGitChangeReport } = require('../out/local-git.js');
 const { classifyPrompt, buildBadge, buildInternalUserMessage } = require('../out/router/internal.js');
 const { loadPipelineConfig, normalizePipeline } = require('../out/pipeline/config.js');
+const { inspectMcpStatus, MCP_TOOL_NAMES } = require('../out/mcp-status.js');
 const {
   determineTestResult,
   getGateState,
@@ -37,7 +38,10 @@ function makeHarness() {
   mkdirp(path.join(harness, 'agents'));
   mkdirp(path.join(harness, 'meta'));
   mkdirp(path.join(harness, 'hooks', 'scripts'));
+  mkdirp(path.join(harness, 'mcp-server', 'dist'));
   write(path.join(harness, 'hooks', 'scripts', 'maestro-router.js'), 'console.log("{}");\n');
+  write(path.join(harness, 'mcp-server', 'dist', 'index.js'), 'console.log("mcp");\n');
+  write(path.join(harness, 'mcp-server', 'package.json'), '{"name":"mcp-server"}\n');
   write(path.join(harness, 'meta', 'guards.json'), JSON.stringify({
     protectedDirs: ['hooks', 'agents', 'workflows', 'skills'],
     protectedFiles: ['maestro.agent.md'],
@@ -163,6 +167,22 @@ test('guards load SSOT and classify command/file writes', () => {
   assert.strictEqual(checkFileWrite(fixture.paths, path.join(fixture.root, '..', 'outside.txt')).decision, 'deny');
 });
 
+test('MCP status exposes github-state tool surface and shared state files', () => {
+  write(path.join(fixture.harness, 'logs', 'current-todos.json'), '{"todos":[]}\n');
+  write(path.join(fixture.harness, 'logs', 'subagent-flow.jsonl'), '');
+  write(path.join(fixture.harness, 'logs', 'retrospective-draft.json'), '{"actionItems":[]}\n');
+  write(path.join(fixture.harness, 'logs', 'test-evidence.json'), '{"status":"PASS"}\n');
+  write(path.join(fixture.harness, 'logs', 'test-gate-state.json'), '{}\n');
+  write(path.join(fixture.harness, 'logs', 'retro.jsonl'), '');
+  const status = inspectMcpStatus(fixture.harness);
+  assert.strictEqual(status.distExists, true);
+  assert.strictEqual(status.packageExists, true);
+  assert.ok(MCP_TOOL_NAMES.includes('todo_get'));
+  assert.ok(MCP_TOOL_NAMES.includes('testgate_is_valid'));
+  assert.ok(MCP_TOOL_NAMES.includes('retro_get_recent'));
+  assert.strictEqual(Object.values(status.sharedState).filter(Boolean).length, 6);
+});
+
 test('local git query detector and renderer are deterministic', () => {
   assert.strictEqual(isGitChangeQuery('변경 들어온게 뭐지?'), true);
   assert.strictEqual(isGitChangeQuery('git diff 보여줘'), true);
@@ -218,6 +238,35 @@ test('internal TS router treats missing or not-wired reports as fix', () => {
   const analysis = classifyPrompt('왜 Tester가 pipeline에 안 연결된 것 같지?', fixture.paths);
   assert.strictEqual(analysis.intent, 'fix');
   assert.deepStrictEqual(analysis.pipeline, ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']);
+});
+
+test('extension router parity matrix covers hook classifier core intents', () => {
+  const cases = [
+    ['리뷰해줘', 'review', ['Reviewer', 'Critic', 'Release']],
+    ['왜 그래?', 'question', ['Context7 Docs Agent', 'Critic', 'Release']],
+    ['문서화해줘', 'document', ['Context7 Docs Agent', 'Documenter', 'Critic', 'Release']],
+    ['없는 것 같지?', 'fix', ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']],
+    ['누락됐어', 'fix', ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']],
+    ['버그 고쳐', 'fix', ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']],
+    ['설계해줘', 'plan', ['Planner', 'Critic', 'Release']],
+    ['릴리즈해줘', 'release', ['Release', 'Critic']],
+    ['만들어줘', 'implement', ['Planner', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']],
+  ];
+  for (const [prompt, intent, pipeline] of cases) {
+    const analysis = classifyPrompt(prompt, fixture.paths);
+    assert.strictEqual(analysis.intent, intent, prompt);
+    assert.deepStrictEqual(analysis.pipeline, pipeline, prompt);
+  }
+});
+
+test('extension package contributes MCP view and commands', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  const views = pkg.contributes.views.maestroChat.map(v => v.id);
+  assert.ok(views.includes('maestroChat.sidebar'));
+  assert.ok(views.includes('maestroChat.mcp'));
+  const commands = pkg.contributes.commands.map(c => c.command);
+  assert.ok(commands.includes('maestroChat.openMcpConfig'));
+  assert.ok(commands.includes('maestroChat.runExtensionTests'));
 });
 
 test('test-gate marks writes stale and accepts newer PASS evidence', () => {

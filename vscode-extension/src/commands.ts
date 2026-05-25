@@ -5,6 +5,7 @@ import { envPathFor, getEnvValue, setEnvValue, clearEnvValue } from './env-file'
 import { HarnessPaths } from './state/paths';
 import { clearActionItems } from './state/action-items';
 import { determineTestResult, recordTestEvidence } from './state/test-gate';
+import { mcpConfigCandidates } from './mcp-status';
 
 type HarnessResolver = () => string | null;
 type RefreshFn = () => void;
@@ -117,6 +118,23 @@ async function cmdOpenLogs(resolver: HarnessResolver): Promise<void> {
   await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(logs));
 }
 
+async function cmdOpenMcpConfig(): Promise<void> {
+  const fs = await import('fs');
+  const candidates = mcpConfigCandidates();
+  let target = candidates.find(p => fs.existsSync(p));
+  if (!target) {
+    target = candidates[0];
+    if (!target) {
+      vscode.window.showErrorMessage('MCP config 후보 경로를 계산하지 못했습니다.');
+      return;
+    }
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, '{\n  "servers": {}\n}\n', 'utf8');
+  }
+  const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
+  await vscode.window.showTextDocument(doc);
+}
+
 async function cmdClearActionItems(resolver: HarnessResolver, refresh: RefreshFn): Promise<void> {
   const harnessPath = resolver();
   if (!harnessPath) {
@@ -176,6 +194,7 @@ export function registerCommands(
     vscode.commands.registerCommand('maestroChat.openEnvFile',    () => cmdOpenEnvFile(resolver)),
     vscode.commands.registerCommand('maestroChat.openHarness',    () => cmdOpenHarness(resolver)),
     vscode.commands.registerCommand('maestroChat.openLogs',       () => cmdOpenLogs(resolver)),
+    vscode.commands.registerCommand('maestroChat.openMcpConfig',  () => cmdOpenMcpConfig()),
     vscode.commands.registerCommand('maestroChat.clearActionItems', () => cmdClearActionItems(resolver, refresh)),
     vscode.commands.registerCommand('maestroChat.runExtensionTests', () => cmdRunExtensionTests(resolver, refresh)),
     vscode.commands.registerCommand('maestroChat.refresh',        () => refresh()),

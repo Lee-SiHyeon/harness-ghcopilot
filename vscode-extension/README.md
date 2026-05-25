@@ -179,6 +179,7 @@ executePipeline()
 ### 사이드 패널 (Activity Bar → 🎼 Maestro)
 - **GITHUB_PAT 상태**: 설정 여부 표시. 클릭하면 SetPAT 명령 실행
 - **마이그레이션 상태**: Router가 extension TS인지 legacy hook인지, MCP가 optional인지 표시
+- **MCP github-state**: 등록 여부, 현재 harness target, 도구 목록, 공유 상태 파일 표시
 - **현재 세션**: sessionId, 시작 시각, 진행 중인 에이전트(스피너), 최근 완료된 에이전트(소요시간/상태)
 - **Test Gate**: requiredSince, 마지막 PASS/FAIL evidence, 테스트 실행 버튼
 - **Todo 상태**: `current-todos.json` 진행률
@@ -187,6 +188,15 @@ executePipeline()
 - **최근 회고**: `retro.jsonl`의 마지막 5건 (제목/날짜/타입, hover 시 자기비평)
 
 > 자동 새로고침: `subagent-flow.jsonl`, `pipeline.jsonl`, `test-gate-state.json`, `test-evidence.json`, `current-todos.json`, `precompact-state.json`, `retrospective-draft.json`, `retro.jsonl` 변경 시 debounce 500ms 후 refresh. 수동: 사이드바 우측 상단 🔄.
+
+### MCP 상태 뷰
+Activity Bar의 Maestro 컨테이너에는 별도 **MCP 상태** 뷰가 있다.
+
+- `github-state`가 VS Code `mcp.json`에 등록됐는지 표시
+- `mcp-server/dist/index.js` 빌드 여부 표시
+- 등록된 MCP args가 현재 harness를 가리키는지 표시
+- 19개 MCP tool surface 표시 (`todo_*`, `pipeline_*`, `actionitems_*`, `testgate_*`, `retro_*`)
+- extension과 MCP가 공유하는 `logs/*` 상태 파일 존재 여부 표시
 
 ### 상태바
 - `🎼 Maestro [PAT ✅]` 또는 `🎼 Maestro [PAT ⚠️]` (warning 배경) 또는 `[harness ?]`
@@ -204,6 +214,7 @@ executePipeline()
 | Maestro: Show Output Log | `Output: Maestro Chat` 채널 열기 |
 | Maestro: Run Extension Tests | `vscode-extension/npm test` 실행 후 test evidence 기록 |
 | Maestro: Clear Action Items | actionItems 초기화 |
+| Maestro: Open MCP Config | VS Code `mcp.json` 열기/생성 |
 
 ### vscode.lm 도구 (Phase 3.5 실행 연결)
 | 도구 | 가드 |
@@ -264,8 +275,10 @@ npm test
 - `.agent.md` 로더의 CRLF/frontmatter/Context7 fallback 매칭
 - `meta/guards.json` 기반 shell/file guard 판정
 - extension TS router pipeline normalization
+- hook classifier core intent/pipeline parity matrix
 - saved todo/precompact/actionItems 주입
 - test-gate + retrospective/actionItems 회귀
+- MCP view/command/tool surface 회귀
 
 CI:
 - `.github/workflows/vscode-extension-ci.yml`

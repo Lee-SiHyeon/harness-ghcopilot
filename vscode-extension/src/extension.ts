@@ -7,6 +7,7 @@ import { clearActionItems, loadActionItemsCount } from './state/action-items';
 import { appendFlow, newCorrelationId } from './state/subagent-flow';
 import { executePipeline } from './pipeline/executor';
 import { MaestroTreeProvider } from './sidebar-view';
+import { McpTreeProvider } from './mcp-view';
 import { MaestroStatusBar } from './status-bar';
 import { registerCommands } from './commands';
 import { registerTools } from './tools/registry';
@@ -331,11 +332,17 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // 2) 사이드바 TreeView
   const treeProvider = new MaestroTreeProvider(resolveHarnessPath);
+  const mcpProvider = new McpTreeProvider(resolveHarnessPath);
   const treeView = vscode.window.createTreeView('maestroChat.sidebar', {
     treeDataProvider: treeProvider,
     showCollapseAll: true,
   });
+  const mcpView = vscode.window.createTreeView('maestroChat.mcp', {
+    treeDataProvider: mcpProvider,
+    showCollapseAll: true,
+  });
   context.subscriptions.push(treeView);
+  context.subscriptions.push(mcpView);
 
   // 3) 상태바
   const statusBar = new MaestroStatusBar(resolveHarnessPath);
@@ -344,6 +351,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // 4) 통합 refresh — tree + statusBar 동시 갱신
   const refresh = () => {
     treeProvider.refresh();
+    mcpProvider.refresh();
     statusBar.refresh(resolveHarnessPath);
   };
 
