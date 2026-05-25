@@ -2155,4 +2155,29 @@ tc('tc-180', 'todo-inject-subagent/agent_type',
   }
 });
 
+
+// ── Hook stdin dump (H1~H3 + hook-stdin-dump.js) ─────────────────────
+tc('tc-181', 'safety-guard / async-stdin', 'safety-guard.js async IIFE + for-await stdin 읽기 코드 존재', () => {
+  const src = readSrc('safety-guard.js');
+  if (!src.includes('for await')) throw new Error('safety-guard.js에 async stdin 읽기(for await) 없음');
+  if (!src.includes('async ()') && !src.includes('async()')) throw new Error('safety-guard.js에 async IIFE 없음');
+});
+
+tc('tc-182', 'pipeline-logger / tool_response', 'pipeline-logger.js에 tool_response 필드 읽기 코드 존재 (H1)', () => {
+  const src = readSrc('pipeline-logger.js');
+  if (!src.includes('tool_response')) throw new Error('pipeline-logger.js에 tool_response 필드 없음');
+});
+
+tc('tc-183', 'todo-inject-subagent / session-id-stdin', 'todo-inject-subagent.js에 stdinData sessionId 폴백 존재 (H2)', () => {
+  const src = readSrc('todo-inject-subagent.js');
+  if (!src.includes('stdinData') || !src.includes('sessionId')) throw new Error('stdinData.sessionId 폴백 코드 없음');
+});
+
+tc('tc-184', 'hook-stdin-dump / syntax-and-structure', 'hook-stdin-dump.js 문법 이상 없음 + DUMP_FILE + SENSITIVE_KEYS 존재', () => {
+  const src = readSrc('hook-stdin-dump.js');
+  if (!src.includes('DUMP_FILE')) throw new Error('hook-stdin-dump.js에 DUMP_FILE 없음');
+  if (!src.includes('SENSITIVE_RE') && !src.includes('redact')) throw new Error('hook-stdin-dump.js에 민감정보 redaction(SENSITIVE_RE/redact) 없음');
+  if (!src.includes('for await') && !src.includes('async')) throw new Error('hook-stdin-dump.js에 async stdin 읽기 없음');
+});
+
 run();

@@ -204,7 +204,7 @@ const DEFAULT_GUIDE = [
     : '';
 
   // 4. Subagent flow / audit 기록
-  const sessionId = (process.env.SESSION_ID || '').trim();
+  const sessionId = (stdinData?.sessionId || stdinData?.session_id || process.env.SESSION_ID || '').trim();
   const guideType = Object.prototype.hasOwnProperty.call(AGENT_TODO_GUIDE, agentName) ? agentName : 'default';
   let correlationId;
   try {

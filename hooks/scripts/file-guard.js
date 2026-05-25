@@ -35,14 +35,46 @@ function tryAudit(obj) { if (!audit) return; try { audit.appendAudit(obj); } cat
 
 function out(obj) { process.stdout.write(JSON.stringify(obj)); }
 
-try {
-  const toolName     = (process.env.TOOL_NAME  || '').trim();
-  const agentName    = (process.env.AGENT_NAME || 'unknown').trim();
-  const subagentName = (process.env.SUBAGENT_NAME || '').trim();
-  const rawInput  = process.env.TOOL_INPUT  || '{}';
+(async () => {
+  // stdin 읽기 (PreToolUse hook data)
+  let stdinData = null;
+  try {
+    if (!process.stdin.isTTY) {
+      const chunks = [];
+      let totalBytes = 0;
+      const MAX_STDIN_BYTES = 64 * 1024;
+      for await (const chunk of process.stdin) {
+        totalBytes += chunk.length;
+        if (totalBytes > MAX_STDIN_BYTES) { stdinData = null; break; }
+        chunks.push(chunk);
+      }
+      if (chunks.length > 0) stdinData = JSON.parse(Buffer.concat(chunks).toString('utf8').trim());
+    }
+  } catch (_) {}
 
-  let input = {};
-  try { input = JSON.parse(rawInput); } catch (_) {}
+try {
+  const toolName  = (stdinData?.tool_name  || process.env.TOOL_NAME  || '').trim();
+  const agentName = (stdinData?.agent_name || process.env.AGENT_NAME || 'unknown').trim();
+  const subagentName = (stdinData?.subagent_name || process.env.SUBAGENT_NAME || '').trim();
+
+  // VS Code가 matcher를 무시할 경우 대비: 파일 수정 도구가 아니면 즉시 통과
+  const FILE_MODIFYING_TOOLS = new Set([
+    'edit_file', 'create_file', 'delete_file', 'rename_file', 'move_file',
+    'write_file', 'replace_string_in_file', 'multi_replace_string_in_file',
+    'insert_edit_into_file', 'edit_notebook_file', 'apply_patch'
+  ]);
+  if (toolName && !FILE_MODIFYING_TOOLS.has(toolName)) {
+    out({ continue: true });
+    process.exit(0);
+  }
+
+  let input;
+  if (stdinData !== null && stdinData !== undefined && stdinData.tool_input !== undefined) {
+    const raw = stdinData.tool_input;
+    input = (raw && typeof raw === 'object') ? raw : {};
+  } else {
+    try { input = JSON.parse(process.env.TOOL_INPUT || '{}'); } catch (_) { input = {}; }
+  }
 
   // ── 경로 후보 키 ────────────────────────────────────────────────
   const PATH_KEYS = [
@@ -291,3 +323,4 @@ try {
     reason: '🚫 file-guard 내부 오류로 파일 조작을 차단했습니다. 훅 로그를 확인한 뒤 다시 시도하세요.',
   });
 }
+})();

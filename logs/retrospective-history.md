@@ -405,6 +405,19 @@
 | 건너뜀 | 없음 |
 | 반복 이슈 | 없음 |
 
-**자기비평**: todo-inject-subagent.js의 eadAgentDescription에서 unsanitized 
+**자기비평**: todo-inject-subagent.js의 
+eadAgentDescription에서 unsanitized 
 ame을 경로에 직접 사용하는 path traversal 취약점이 기존에 존재했으나 Reviewer가 1차에서 발견했다. 신규 코드 추가 시 기존 함수의 보안 수준도 함께 검토해야 했다.
 **다음 번 개선**: 경로를 인자로 받는 기존 함수를 수정하거나 참조할 때, containment 검증 여부를 먼저 확인한다. path.resolve() + startsWith(baseDir + sep) 패턴 적용 여부를 체크한다.
+---
+## 2026-05-25 — Hook stdin dump + 보안 수정 (fix/implement: H1/H2/H3 + stdin-dump)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Investigator ✅ → Reviewer ✅ → Implementer ✅ → Tester ✅(regression) → Implementer #2 ✅ → Tester #2 ✅ → Reviewer #2 ✅ → Implementer #3 ✅ → Reviewer #3 ✅ |
+| 건너뜀 | 없음 |
+| 반복 이슈 | Tester가 pre-existing failure라고 잘못 보고 → 실제로는 regression (3건). stash diff로 재확인 필요. |
+
+**자기비평**: Tester가 regression을 pre-existing으로 오진단하여 Implementer #2가 추가로 필요했음. git stash 비교로 즉시 반박할 수 있었으나 Tester 보고를 신뢰한 실수.
+**다음 번 개선**: Tester 실행 후 "before/after" 베이스라인과 비교하는 단계를 필수화 — stash → test(baseline) → stash pop → test(after) 패턴으로 regression 여부를 수치로 확인.
+

@@ -21,12 +21,29 @@ function tryAudit(obj) { if (!audit) return; try { audit.appendAudit(obj); } cat
 
 function out(obj) { process.stdout.write(JSON.stringify(obj)); }
 
-try {
-  const agentName = (process.env.AGENT_NAME || 'unknown').trim();
-  const rawInput  = process.env.TOOL_INPUT  || '{}';
+(async () => {
+  // stdin 읽기 (PreToolUse hook data)
+  let stdinData = null;
+  try {
+    if (!process.stdin.isTTY) {
+      const chunks = [];
+      let totalBytes = 0;
+      const MAX_STDIN_BYTES = 64 * 1024;
+      for await (const chunk of process.stdin) {
+        totalBytes += chunk.length;
+        if (totalBytes > MAX_STDIN_BYTES) { stdinData = null; break; }
+        chunks.push(chunk);
+      }
+      if (chunks.length > 0) stdinData = JSON.parse(Buffer.concat(chunks).toString('utf8').trim());
+    }
+  } catch (_) {}
 
-  let input = {};
-  try { input = JSON.parse(rawInput); } catch (_) {}
+try {
+  const agentName = (stdinData?.agent_name || process.env.AGENT_NAME || 'unknown').trim();
+  let input = stdinData?.tool_input || {};
+  if (!input || typeof input !== 'object') {
+    try { input = JSON.parse(process.env.TOOL_INPUT || '{}'); } catch(_) { input = {}; }
+  }
 
   // model 파라미터 없으면 패스
   if (!input.model) { out({ continue: true }); process.exit(0); }
@@ -98,4 +115,5 @@ try {
   // 에러 시 통과 (훅이 파이프라인을 막아선 안 됨)
   out({ continue: true });
 }
+})();
 process.exit(0);

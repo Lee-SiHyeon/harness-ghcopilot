@@ -258,7 +258,9 @@ let toolInput = stdinData?.tool_input || stdinData?.toolInput || stdinData?.tool
 if (toolInput == null) {
   try { toolInput = JSON.parse(process.env.TOOL_INPUT || 'null'); } catch (_) { toolInput = process.env.TOOL_INPUT || null; }
 }
-let toolResult = stdinData?.tool_result || stdinData?.toolResult || stdinData?.tool_output || stdinData?.toolOutput || null;
+let toolResult = stdinData?.tool_response     // VS Code 공식 필드명
+              || stdinData?.tool_result || stdinData?.toolResult
+              || stdinData?.tool_output || stdinData?.toolOutput || null;
 if (toolResult == null) {
   try { toolResult = JSON.parse(process.env.TOOL_RESULT || 'null'); } catch (_) { toolResult = process.env.TOOL_RESULT || null; }
 }
