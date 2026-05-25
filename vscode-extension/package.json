@@ -26,7 +26,29 @@
         "description": "강제 배지 + 멀티 에이전트 오케스트레이션",
         "isSticky": true
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Maestro Chat",
+      "properties": {
+        "maestroChat.harnessPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the cloned `.github` harness directory (the folder that contains `hooks/scripts/maestro-router.js`).\n\n비워두면 자동 발견을 시도한다:\n1. 워크스페이스에 `.github/` 하위 폴더가 있으면 그것을 사용\n2. 워크스페이스 폴더 자체가 `.github` 레이아웃이면 그것을 사용 (clone standalone)\n3. 둘 다 실패하면 에러"
+        },
+        "maestroChat.routerTimeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 1000,
+          "maximum": 60000,
+          "description": "maestro-router.js child_process 타임아웃 (ms)"
+        },
+        "maestroChat.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "true로 두면 router stdout/stderr와 발견된 harness path를 응답에 표시 (디버깅용)"
+        }
+      }
+    }
   },
   "scripts": {
     "compile": "tsc -p ./",

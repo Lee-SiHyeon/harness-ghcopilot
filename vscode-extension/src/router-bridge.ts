@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
 
 export interface RouterResult {
   continue?: boolean;
@@ -11,9 +12,17 @@ export interface RouterResult {
   reason?: string;
 }
 
-const ROUTER_RELATIVE_PATH = path.join('.github', 'hooks', 'scripts', 'maestro-router.js');
+export interface RouterCallOptions {
+  /** Path to the `.github` (or harness) directory containing `hooks/scripts/maestro-router.js`. */
+  harnessPath: string;
+  /** Optional timeout in ms (default 15s). */
+  timeoutMs?: number;
+  /** Optional: extra env to pass through. */
+  extraEnv?: NodeJS.ProcessEnv;
+}
 
-// 라우터가 stdout으로 single-line JSON을 쓰지만, 안전을 위해 마지막 JSON 객체를 찾는다.
+const ROUTER_REL = path.join('hooks', 'scripts', 'maestro-router.js');
+
 function parseRouterStdout(raw: string): RouterResult {
   const trimmed = raw.trim();
   if (!trimmed) throw new Error('maestro-router stdout이 비어있음');
@@ -22,27 +31,65 @@ function parseRouterStdout(raw: string): RouterResult {
   } catch {
     const start = trimmed.indexOf('{');
     const end = trimmed.lastIndexOf('}');
-    if (start === -1 || end === -1) throw new Error(`maestro-router JSON 파싱 실패: ${trimmed.slice(0, 200)}`);
+    if (start === -1 || end === -1) {
+      throw new Error(`maestro-router JSON 파싱 실패: ${trimmed.slice(0, 200)}`);
+    }
     return JSON.parse(trimmed.slice(start, end + 1));
   }
 }
 
+/**
+ * harnessPath: `.github` 디렉토리 절대 경로.
+ *
+ * maestro-router.js는 `process.cwd() + '/.github/...'` 식으로 로그/SSOT를 찾는다.
+ * 따라서 spawn cwd는 harness 폴더의 **부모**여야 하며, 부모 안에서 본 harness가
+ * 정확히 `.github`라는 이름의 하위 폴더로 보여야 한다.
+ *
+ * 두 시나리오를 모두 지원:
+ * 1. host project: harnessPath = `<project>/.github` → spawn cwd = `<project>`
+ * 2. standalone clone: harnessPath = `<cloned>/.github` 형태로 폴더명이 `.github` →
+ *    spawn cwd = `<cloned>` (부모)
+ * 3. clone 후 폴더명이 `.github`가 아닌 경우(예: `dotgithub-harness/`) →
+ *    임시 부모 폴더에 심볼릭 링크/리네임이 필요하므로 명시적으로 거부한다.
+ */
+export function deriveSpawnCwd(harnessPath: string): string {
+  const normalized = path.resolve(harnessPath);
+  const basename = path.basename(normalized);
+  if (basename !== '.github') {
+    throw new Error(
+      `maestroChat.harnessPath의 마지막 폴더명이 ".github"가 아닙니다: "${basename}". ` +
+      `라우터가 cwd/.github/... 구조를 가정하므로 폴더 이름을 ".github"로 유지해야 합니다.`
+    );
+  }
+  return path.dirname(normalized);
+}
+
+export function routerScriptPath(harnessPath: string): string {
+  return path.join(path.resolve(harnessPath), ROUTER_REL);
+}
+
 export async function callMaestroRouter(
   prompt: string,
-  workspaceRoot: string,
-  timeoutMs = 15_000,
+  options: RouterCallOptions,
 ): Promise<RouterResult> {
-  const routerPath = path.join(workspaceRoot, ROUTER_RELATIVE_PATH);
+  const { harnessPath, timeoutMs = 15_000, extraEnv } = options;
+  const scriptPath = routerScriptPath(harnessPath);
+  if (!fs.existsSync(scriptPath)) {
+    throw new Error(`maestro-router.js를 찾을 수 없음: ${scriptPath}`);
+  }
+  const cwd = deriveSpawnCwd(harnessPath);
+
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [routerPath], {
-      cwd: workspaceRoot,
+    const child = spawn(process.execPath, [scriptPath], {
+      cwd,
       env: {
         ...process.env,
         USER_PROMPT: prompt,
         AGENT_NAME: 'Maestro',
         SUBAGENT_NAME: '',
+        ...(extraEnv || {}),
       },
-      // stdin을 ignore로 두면 자식 코드가 stdin을 await할 일이 없어 Windows libuv assert 회피.
+      // stdin=ignore → Windows libuv assert 회피, 자식이 stdin을 읽으려 해도 즉시 EOF
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -58,8 +105,7 @@ export async function callMaestroRouter(
     child.on('error', err => { clearTimeout(timer); reject(err); });
     child.on('close', code => {
       clearTimeout(timer);
-      // Windows에서 fetch/async 정리 도중 libuv assert로 non-zero exit이 나도
-      // stdout이 완전한 JSON이면 데이터는 유효하다. 파싱이 성공하면 우선한다.
+      // Windows libuv assert로 non-zero exit이 나도 stdout이 valid JSON이면 데이터는 유효.
       try {
         const parsed = parseRouterStdout(stdout);
         resolve(parsed);
@@ -77,8 +123,7 @@ export async function callMaestroRouter(
   });
 }
 
-// userMessage 안에 묻혀있는 디스크 배지 블록(```\n🎯 ... 📋 ... 🔍 ...\n```)을 추출.
-// 블록을 못 찾으면 빈 문자열을 돌려준다 (호출자가 처리).
+/** userMessage 안의 ```\n🎯 ... 📋 ...\n``` 블록을 추출. */
 export function extractBadge(userMessage: string): string {
   if (!userMessage) return '';
   const fenceRe = /```\s*\n([\s\S]*?)\n```/g;
