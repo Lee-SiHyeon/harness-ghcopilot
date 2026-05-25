@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -2034,7 +2034,7 @@ tc('tc-172', 'maestro-router/context7-injection-question',
   const msg = result.modifiedParameters?.userMessage || '';
   if (!msg.includes('Context7 호출 필수')) throw new Error(`강조 블록 누락: ${msg.slice(0, 300)}`);
   if (!msg.includes('Next.js')) throw new Error('감지된 스택 미표시');
-  if (!/📋 \*\*파이프라인\*\*:\s*Context7 Docs Agent/.test(msg)) {
+  if (!/📋 \*\*파이프라인\*\*:\s*(?:자가비평 \d+건 처리\s*→\s*)?Context7 Docs Agent/.test(msg)) {
     throw new Error(`파이프라인 첫 단계가 Context7이 아님: ${msg.match(/📋[^\n]*/)?.[0]}`);
   }
 });
@@ -2269,6 +2269,34 @@ tc('tc-195', 'disclosure / classification-badge', 'buildOutput(usedLLM=true) —
 
 run
 
+
+tc('tc-196', 'output-builder / pipeline-enforcement-static',
+   'buildPipelineEnforcementBlock — 함수 존재 + pipelines.json SSOT 참조 + 임의 파이프라인 금지 문구', () => {
+  const src = readSrc('router/output-builder.js');
+  if (!src.includes('buildPipelineEnforcementBlock')) {
+    throw new Error('buildPipelineEnforcementBlock 함수 없음');
+  }
+  if (!src.includes('pipelines.json')) {
+    throw new Error('pipelines.json SSOT 경로 참조 없음');
+  }
+  if (!src.includes('임의 파이프라인')) {
+    throw new Error('임의 파이프라인 금지 문구 없음');
+  }
+});
+
+tc('tc-197', 'output-builder / pipeline-enforcement-runtime',
+   'buildOutput 결과 userMessage에 SSOT 강제 블록 + 허용 스텝 목록 포함', () => {
+  const result = runMaestroRouter('새 기능 만들어줘', '');
+  const msg = (result && result.modifiedParameters && result.modifiedParameters.userMessage) || '';
+  if (!msg.includes('파이프라인 SSOT') && !msg.includes('임의 파이프라인 사용 금지')) {
+    throw new Error('파이프라인 강제 블록 누락');
+  }
+  const knownAgents = ['Implementer', 'Planner', 'Tester', 'Reviewer', 'Critic'];
+  const missing = knownAgents.filter(a => !msg.includes(a));
+  if (missing.length > 0) {
+    throw new Error('허용 스텝 목록에 에이전트 누락: ' + missing.join(', '));
+  }
+});
 
 
 run();

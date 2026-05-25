@@ -1,5 +1,10 @@
 'use strict';
 
+const fs   = require('fs');
+const path = require('path');
+
+const PIPELINES_SSOT_PATH = path.resolve(__dirname, '..', '..', '..', 'meta', 'pipelines.json');
+
 const { loadSavedTodos, loadPrecompactState, formatResumeBlock } = require('./state-loaders');
 const { isScoutLoopPrompt, SCOUT_RALPH_PROTOCOL_BLOCK } = require('./classifier');
 const { wrapUntrusted } = require('./env-utils');
@@ -25,6 +30,39 @@ function buildContext7EnforcementBlock(stacks) {
     '- 단순 질의(question/query)라도 라이브러리 관련이면 Context7을 거쳐야 한다 (직접 답변 금지).',
     '- 학습 데이터의 옛 API로 추측하는 것은 허용되지 않는다.',
   ].join('\n');
+}
+
+function loadAllowedPipelines() {
+  try {
+    const raw = fs.readFileSync(PIPELINES_SSOT_PATH, 'utf8');
+    const data = JSON.parse(raw);
+    return Array.isArray(data.pipelines) ? data.pipelines : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function buildPipelineEnforcementBlock() {
+  const allowed = loadAllowedPipelines();
+  if (allowed.length === 0) return '';
+
+  const allSteps = new Set();
+  for (const p of allowed) {
+    if (Array.isArray(p.steps)) p.steps.forEach(s => allSteps.add(s));
+  }
+
+  const lines = [
+    '## [⚠️ 파이프라인 SSOT 강제 — 임의 파이프라인 사용 금지]',
+    `- 이 헤더의 \`📋 파이프라인\` 값은 훅이 \`pipelines.json\` SSOT를 기반으로 결정한다.`,
+    '- **Maestro는 이 값을 변경하거나, 목록에 없는 에이전트 이름을 파이프라인으로 선언하면 안 된다.**',
+    '- "직접 수정", "직접 분석", "직접 구현" 등 아래 목록에 없는 임의 파이프라인 선언은 H1 위반이다.',
+    '',
+    `**허용된 에이전트 스텝 (${[...allSteps].length}개):** ${[...allSteps].map(s => '`' + s + '`').join(', ')}`,
+    '',
+    '**허용된 파이프라인 (pipelines.json SSOT):**',
+    ...allowed.map(p => `- **${p.id}** ${p.label}: ${Array.isArray(p.steps) ? p.steps.join(' → ') : '?'}`),
+  ];
+  return lines.join('\n');
 }
 
 function formatPipeline(pipeline) {
@@ -84,6 +122,8 @@ function buildOutput(analysis, usedLLM, ctx) {
   if (routingComplexity < 3) {
     const simpleParts = [];
     if (context7Block) simpleParts.push(context7Block);
+    const pipelineBlock = buildPipelineEnforcementBlock();
+    if (pipelineBlock) simpleParts.push(pipelineBlock);
     simpleParts.push(buildOriginalRequestBlock(prompt));
     return {
       continue: true,
@@ -151,6 +191,8 @@ function buildOutput(analysis, usedLLM, ctx) {
     const resumeBlock = formatResumeBlock(loadPrecompactState());
     const parts = [];
     if (context7Block) parts.push(context7Block);
+    const pipelineBlock = buildPipelineEnforcementBlock();
+    if (pipelineBlock) parts.push(pipelineBlock);
     if (intent === 'scout_loop') parts.push(SCOUT_RALPH_PROTOCOL_BLOCK);
     if (resumeBlock) parts.push(resumeBlock);
     if (savedTodos) parts.push(savedTodos);
@@ -179,6 +221,8 @@ function buildOutput(analysis, usedLLM, ctx) {
 
   const parts = [orchCtx];
   if (context7Block) parts.push(context7Block);
+  const pipelineBlock = buildPipelineEnforcementBlock();
+  if (pipelineBlock) parts.push(pipelineBlock);
   if (intent === 'scout_loop') parts.push(SCOUT_RALPH_PROTOCOL_BLOCK);
   if (resumeBlock) parts.push(resumeBlock);
   if (savedTodos) parts.push(savedTodos);
@@ -197,4 +241,5 @@ module.exports = {
   buildDisclosureHeader,
   ensureContext7InPipeline,
   buildContext7EnforcementBlock,
+  buildPipelineEnforcementBlock,
 };

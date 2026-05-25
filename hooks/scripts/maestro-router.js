@@ -30,7 +30,8 @@ const { loadSavedTodos, loadPrecompactState, formatResumeBlock } = require('./ro
 const { loadRetrospectiveLearnings, loadActionItems, loadActionItemsCount } = require('./router/retro-loaders');
 const { classifyWithGitHubModels, classifyWithRegex,
         isScoutLoopPrompt, SCOUT_RALPH_PROTOCOL_BLOCK, getLlmErrorReason } = require('./router/classifier');
-const { buildOutput, ensureContext7InPipeline, buildContext7EnforcementBlock } = require('./router/output-builder');
+const { buildOutput, ensureContext7InPipeline, buildContext7EnforcementBlock,
+        buildPipelineEnforcementBlock } = require('./router/output-builder');
 
 loadEnv();
 
@@ -121,6 +122,9 @@ if (isMaestroContext) {
   );
   if (isScoutLoop) parts.push(SCOUT_RALPH_PROTOCOL_BLOCK);
   if (context7Block) parts.push(context7Block);
+  // ★ SSOT 강제 블록 주입
+  const pipelineEnforcementBlock = buildPipelineEnforcementBlock();
+  if (pipelineEnforcementBlock) parts.push(pipelineEnforcementBlock);
   // 미해결 개선 항목 경고 주입
   const actionWarning = loadActionItems();
   if (actionWarning) parts.push(actionWarning);
