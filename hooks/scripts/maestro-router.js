@@ -61,6 +61,7 @@ if (subagentName) {
 const KNOWN_SUBAGENTS = new Set(['Planner','Implementer','Tester','Reviewer','Documenter','Investigator','Release','Critic','Scout','Context7 Docs Agent']);
 const isMaestroContext = !KNOWN_SUBAGENTS.has(agentName);
 if (isMaestroContext) {
+  (async () => {
   // ── MaestroSessionStart 기록 (세션당 1회, subagent-flow.jsonl) ─
   try {
     const sessionId = (process.env.SESSION_ID || '').trim();
@@ -102,11 +103,24 @@ if (isMaestroContext) {
   }
 
   const actionCount = loadActionItemsCount();
-  const analysis = classifyWithRegex(prompt);  // sync path: regex만 사용 (속도 우선)
+  // LLM 우선 → regex 폴백
+  let analysis = await classifyWithGitHubModels(prompt);
+  let usedLLM = !!analysis;
+  if (!analysis) {
+    analysis = classifyWithRegex(prompt);
+  }
+  // audit 로깅
+  const promptSummary = audit ? audit.summarize(prompt, 100) : prompt.slice(0, 100);
+  if (usedLLM) {
+    tryAudit({ event: 'gh_models_classify', source: 'UserPromptSubmit', status: 'success', intent: analysis.intent, pipeline: analysis.pipeline, complexity: analysis.complexity, model: 'gpt-4o-mini', agentName, promptSummary });
+  } else {
+    tryAudit({ event: 'regex_fallback', source: 'UserPromptSubmit', intent: analysis.intent, pipeline: analysis.pipeline, complexity: analysis.complexity, fallbackReason: getLlmErrorReason() || 'no_pat', agentName, promptSummary });
+  }
   // 라이브러리 감지 시 Context7 강제 주입 (Maestro context도 동일 정책)
   analysis.pipeline = ensureContext7InPipeline(analysis.pipeline, analysis.stacks);
   const context7Block = buildContext7EnforcementBlock(analysis.stacks);
   const isScoutLoop = analysis.intent === 'scout_loop' || isScoutLoopPrompt(prompt);
+  const disclosureSource = usedLLM ? '🤖 LLM(gpt-4o-mini)' : '⚙️ regex폴백';
   const disclosurePipeline = actionCount >= 1
     ? [`자가비평 ${actionCount}건 처리`, ...analysis.pipeline]
     : analysis.pipeline;
@@ -116,7 +130,7 @@ if (isMaestroContext) {
     '```',
     `🎯 **작업 유형**: ${analysis.intent}`,
     `📋 **파이프라인**: ${disclosurePipeline.join(' → ')}`,
-    `🔍 **분류 방식**: ⚙️ regex폴백`,
+    `🔍 **분류 방식**: ${disclosureSource}`,
     '```',
     '이 블록 없이 내용을 출력하거나 에이전트를 호출하면 규칙 위반이다.',
   );
@@ -160,7 +174,7 @@ if (isMaestroContext) {
   parts.push('', '## [원본 요청]', wrapUntrusted('user-request', prompt));
 
   // GITHUB_PAT 미설정 시 토큰 안내 주입 (Maestro context)
-  if (!process.env.GITHUB_PAT) {
+  if (!usedLLM && !process.env.GITHUB_PAT) {
     parts.push(
       '',
       '> ⚠️ **LLM 분류기 비활성 — Regex 모드로 전환되었습니다**',
@@ -174,16 +188,17 @@ if (isMaestroContext) {
     );
   }
 
-  const promptSummary = audit ? audit.summarize(prompt, 100) : prompt.slice(0, 100);
-  tryAudit({ event: 'maestro_passthrough', source: 'UserPromptSubmit', agentName, intent: analysis.intent, pipeline: analysis.pipeline, complexity: analysis.complexity, promptSummary });
+  tryAudit({ event: 'maestro_passthrough', source: 'UserPromptSubmit', agentName, intent: analysis.intent, pipeline: analysis.pipeline, complexity: analysis.complexity, usedLLM, promptSummary });
   out({ continue: true, modifiedParameters: { userMessage: parts.join('\n') } });
   process.exit(0);
+  })().catch(() => { out({ continue: true }); process.exit(0); });
 }
 
 // ══════════════════════════════════════════════════════════════════
 // 메인
 // ══════════════════════════════════════════════════════════════════
 (async () => {
+  if (isMaestroContext) return; // isMaestroContext는 위에서 처리됨
   let analysis = null;
   let usedLLM  = false;
 
