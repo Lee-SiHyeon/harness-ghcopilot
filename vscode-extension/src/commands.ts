@@ -1,16 +1,17 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { exec } from 'child_process';
 import { envPathFor, getEnvValue, setEnvValue, clearEnvValue } from './env-file';
 import { HarnessPaths } from './state/paths';
 import { clearActionItems } from './state/action-items';
 import { determineTestResult, recordTestEvidence } from './state/test-gate';
+import { redactSecrets } from './state/redaction';
 import { mcpConfigCandidates } from './mcp-status';
+import { runNpmTest } from './test-runner';
 
 type HarnessResolver = () => string | null;
 type RefreshFn = () => void;
 
-const PAT_PLACEHOLDER = 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+const PAT_PLACEHOLDER = 'GitHub personal access token';
 
 /** Maestro: Set GITHUB_PAT — InputBox로 받아 .env에 기록. */
 async function cmdSetGithubPat(resolver: HarnessResolver, refresh: RefreshFn): Promise<void> {
@@ -162,25 +163,22 @@ async function cmdRunExtensionTests(resolver: HarnessResolver, refresh: RefreshF
   const output = vscode.window.createOutputChannel('Maestro Test Run');
   output.show(true);
   output.appendLine(`[Maestro] npm test 시작: ${cwd}`);
-  exec('npm test', { cwd, timeout: 180_000, windowsHide: true }, (err, stdout, stderr) => {
-    const exitCode = typeof (err as NodeJS.ErrnoException | null)?.code === 'number'
-      ? Number((err as NodeJS.ErrnoException).code)
-      : (err ? 1 : 0);
-    const combined = [stdout, stderr].filter(Boolean).join('\n');
-    output.appendLine(combined || '(empty output)');
-    const result = determineTestResult(exitCode, combined);
-    recordTestEvidence(paths, {
-      command: 'npm test',
-      result,
-      status: result,
-      exitCode,
-      evidence: combined.split(/\r?\n/).slice(-80).join('\n'),
-    });
-    refresh();
-    const msg = `Maestro extension tests: ${result} (exitCode=${exitCode})`;
-    if (result === 'PASS') vscode.window.showInformationMessage(msg);
-    else vscode.window.showErrorMessage(msg);
+  const run = await runNpmTest(cwd);
+  const combined = [run.stdout, run.stderr].filter(Boolean).join('\n');
+  output.appendLine(redactSecrets(combined) || '(empty output)');
+  if (run.timedOut) output.appendLine('[Maestro] npm test timed out');
+  const result = determineTestResult(run.exitCode, combined);
+  recordTestEvidence(paths, {
+    command: 'npm test',
+    result,
+    status: result,
+    exitCode: run.exitCode,
+    evidence: redactSecrets(combined.split(/\r?\n/).slice(-80).join('\n')),
   });
+  refresh();
+  const msg = `Maestro extension tests: ${result} (exitCode=${run.exitCode})`;
+  if (result === 'PASS') vscode.window.showInformationMessage(msg);
+  else vscode.window.showErrorMessage(msg);
 }
 
 export function registerCommands(
@@ -200,3 +198,10 @@ export function registerCommands(
     vscode.commands.registerCommand('maestroChat.refresh',        () => refresh()),
   );
 }
+
+
+
+
+
+
+

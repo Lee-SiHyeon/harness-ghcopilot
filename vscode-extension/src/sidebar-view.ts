@@ -8,7 +8,7 @@ import { inspectMcpStatus } from './mcp-status';
 
 const KNOWN_AGENTS = new Set([
   'Planner', 'Implementer', 'Tester', 'Reviewer', 'Critic',
-  'Documenter', 'Investigator', 'Scout', 'Release',
+  'Documenter', 'Investigator', 'Inspector', 'Scout', 'Release',
   'Context7 Docs Agent', 'Maestro',
 ]);
 

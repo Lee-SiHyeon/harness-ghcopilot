@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import { HarnessPaths } from '../state/paths';
 
 export interface AgentDefinition {
@@ -84,7 +84,11 @@ function scanByName(paths: HarnessPaths, name: string): string | null {
   }
   for (const entry of entries) {
     try {
-      const raw = normalizeNewlines(fs.readFileSync(paths.agent(entry), 'utf8'));
+      const fd = fs.openSync(paths.agent(entry), 'r');
+      const buf = Buffer.alloc(512);
+      const bytesRead = fs.readSync(fd, buf, 0, 512, 0);
+      fs.closeSync(fd);
+      const raw = normalizeNewlines(buf.slice(0, bytesRead).toString('utf8'));
       const nameMatch = raw.match(/^name:\s*['"]?(.+?)['"]?\s*$/m);
       if (nameMatch && nameMatch[1].trim() === name) return raw;
     } catch {

@@ -19,7 +19,15 @@ const FALLBACK_CONFIG: PipelineConfig = {
   pipelines: [
     { id: 'A', label: '신규 기능 구현', steps: ['Planner', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release'] },
     { id: 'B', label: '버그 수정', steps: ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release'] },
-    { id: 'F', label: '라이브러리 질문', steps: ['Context7 Docs Agent', 'Critic', 'Release'] },
+    { id: 'C', label: '리팩토링', steps: ['Planner', 'Implementer', 'Reviewer', 'Critic', 'Release'] },
+    { id: 'D', label: '문서화', steps: ['Context7 Docs Agent', 'Documenter', 'Critic', 'Release'] },
+    { id: 'E', label: '코드 리뷰', steps: ['Reviewer', 'Critic', 'Release'] },
+    { id: 'F', label: '라이브러리 질문', steps: ['Context7 Docs Agent'] },
+    { id: 'G', label: '계획만 필요', steps: ['Planner', 'Critic', 'Release'] },
+    { id: 'H', label: '릴리즈/배포', steps: ['Release', 'Critic'] },
+    { id: 'I', label: '자기개선 탐색', steps: ['Scout', 'Critic', 'Release'] },
+    { id: 'J', label: 'Scout 자기교정 루프', steps: ['Scout', 'Planner', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release'] },
+    { id: 'K', label: '읽기 전용 코드 분석', steps: ['Inspector'] },
   ],
   defaultPipeline: 'A',
   maxReviewerRetries: 3,
@@ -43,12 +51,15 @@ export function loadPipelineConfig(paths: HarnessPaths): PipelineConfig {
 
 export function normalizePipeline(intent: string, pipeline: string[]): string[] {
   let steps = [...pipeline];
+  if (!requiresAuditAndRelease(intent) && intent !== 'release') {
+    steps = steps.filter(step => step !== 'Critic' && step !== 'Release');
+  }
   if ((intent === 'implement' || intent === 'fix') && !steps.includes('Tester')) {
     const reviewerIdx = steps.indexOf('Reviewer');
     if (reviewerIdx >= 0) steps.splice(reviewerIdx, 0, 'Tester');
     else steps.push('Tester');
   }
-  if (!['release'].includes(intent)) {
+  if (requiresAuditAndRelease(intent)) {
     if (!steps.includes('Critic')) steps.push('Critic');
     if (!steps.includes('Release')) steps.push('Release');
   }
@@ -56,6 +67,10 @@ export function normalizePipeline(intent: string, pipeline: string[]): string[] 
     steps = ['Release', 'Critic'];
   }
   return dedupePreserveOrder(steps);
+}
+
+export function requiresAuditAndRelease(intent: string): boolean {
+  return ['implement', 'fix', 'document', 'scout_loop'].includes(intent);
 }
 
 function dedupePreserveOrder(values: string[]): string[] {

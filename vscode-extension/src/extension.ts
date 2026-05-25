@@ -10,22 +10,44 @@ import { MaestroTreeProvider } from './sidebar-view';
 import { McpTreeProvider } from './mcp-view';
 import { MaestroStatusBar } from './status-bar';
 import { registerCommands } from './commands';
-import { registerTools } from './tools/registry';
+import { registerTools, setActiveInvokerContext, MAESTRO_INVOKE_AGENT_TOOL_NAME } from './tools/registry';
 import { HarnessWatcher } from './watcher';
 import { createLogger, MaestroLogger } from './logging';
 import { inspectGitChanges, isGitChangeQuery, renderGitChangeReport } from './local-git';
 import { finalizeRetrospective } from './state/retrospective';
 import { buildBadge, buildInternalUserMessage, classifyPrompt } from './router/internal';
+import { normalizePipeline, requiresAuditAndRelease } from './pipeline/config';
 
 const PARTICIPANT_ID = 'maestro';
 const CONFIG_SECTION = 'maestroChat';
 
-type ExecutorMode = 'passthrough' | 'multi-agent';
+type ExecutorMode = 'passthrough' | 'single-session' | 'multi-agent';
 let logger: MaestroLogger | null = null;
+
+function isReadOnlyIntent(intent: string): boolean {
+  return ['query', 'question', 'inspect', 'review', 'plan', 'investigate', 'scout'].includes(intent);
+}
 
 interface HarnessDiscovery {
   harnessPath: string;
+  workspaceRoot: string;
   source: 'setting' | 'workspace-subfolder' | 'workspace-is-harness';
+  warning?: string;
+}
+
+function containsPath(root: string, target: string): boolean {
+  const rel = path.relative(path.resolve(root), path.resolve(target));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function workspaceRootForHarness(harnessPath: string): { workspaceRoot: string; matchedWorkspace: boolean } {
+  const folders = vscode.workspace.workspaceFolders || [];
+  const match = folders
+    .map(f => f.uri.fsPath)
+    .filter(root => containsPath(root, harnessPath))
+    .sort((a, b) => b.length - a.length)[0];
+  if (match) return { workspaceRoot: path.resolve(match), matchedWorkspace: true };
+  return { workspaceRoot: path.resolve(harnessPath), matchedWorkspace: false };
 }
 
 function findHarness(): HarnessDiscovery | { error: string } {
@@ -39,7 +61,15 @@ function findHarness(): HarnessDiscovery | { error: string } {
     if (path.basename(resolved) !== '.github') {
       return { error: `harnessPath의 마지막 폴더명이 ".github"가 아닙니다 ("${path.basename(resolved)}"). 라우터는 cwd/.github/... 구조를 가정합니다.` };
     }
-    return { harnessPath: resolved, source: 'setting' };
+    const root = workspaceRootForHarness(resolved);
+    return {
+      harnessPath: resolved,
+      workspaceRoot: root.workspaceRoot,
+      source: 'setting',
+      warning: root.matchedWorkspace
+        ? undefined
+        : 'maestroChat.harnessPath가 열린 워크스페이스 밖을 가리켜 workspaceRoot를 harness 폴더로 제한했습니다.',
+    };
   }
 
   const folders = vscode.workspace.workspaceFolders || [];
@@ -47,10 +77,10 @@ function findHarness(): HarnessDiscovery | { error: string } {
     const fsPath = f.uri.fsPath;
     const sub = path.join(fsPath, '.github');
     if (fs.existsSync(routerScriptPath(sub))) {
-      return { harnessPath: sub, source: 'workspace-subfolder' };
+      return { harnessPath: sub, workspaceRoot: fsPath, source: 'workspace-subfolder' };
     }
     if (path.basename(fsPath) === '.github' && fs.existsSync(routerScriptPath(fsPath))) {
-      return { harnessPath: fsPath, source: 'workspace-is-harness' };
+      return { harnessPath: fsPath, workspaceRoot: path.dirname(fsPath), source: 'workspace-is-harness' };
     }
   }
 
@@ -69,6 +99,11 @@ function resolveHarnessPath(): string | null {
   return 'error' in found ? null : found.harnessPath;
 }
 
+function resolveHarnessPaths(): HarnessPaths | null {
+  const found = findHarness();
+  return 'error' in found ? null : new HarnessPaths(found.harnessPath, found.workspaceRoot);
+}
+
 function parseBadge(badge: string): { intent: string; pipeline: string[]; classifier: string } {
   const intentMatch = badge.match(/🎯 \*\*작업 유형\*\*:\s*(.+)/);
   const pipelineMatch = badge.match(/📋 \*\*파이프라인\*\*:\s*(.+)/);
@@ -84,12 +119,12 @@ function parseBadge(badge: string): { intent: string; pipeline: string[]; classi
   return { intent, pipeline, classifier };
 }
 
-const handler: vscode.ChatRequestHandler = async (request, _context, stream, token) => {
+const handler: vscode.ChatRequestHandler = async (request, context, stream, token) => {
   const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
   const debug = cfg.get<boolean>('debug', false);
   const timeoutMs = cfg.get<number>('routerTimeoutMs', 15_000);
   const useLegacyRouter = cfg.get<boolean>('useLegacyRouter', false);
-  const executorMode = (cfg.get<string>('executorMode', 'multi-agent') as ExecutorMode);
+  const executorMode = (cfg.get<string>('executorMode', 'single-session') as ExecutorMode);
   const modelFamily = (cfg.get<string>('modelFamily') || '').trim();
   const streamAgentOutputs = cfg.get<boolean>('streamAgentOutputs', true);
   const maxPriorOutputChars = cfg.get<number>('maxPriorStepChars', 4000);
@@ -100,18 +135,21 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     stream.markdown('⚠️ ' + found.error);
     return;
   }
-  const paths = new HarnessPaths(found.harnessPath);
+  const paths = new HarnessPaths(found.harnessPath, found.workspaceRoot);
   const sessionId = newCorrelationId();
   logger?.info('chat request', {
     sessionId,
     harnessPath: found.harnessPath,
+    workspaceRoot: found.workspaceRoot,
     source: found.source,
     executorMode,
     promptChars: request.prompt.length,
   });
+  if (found.warning) logger?.warn('harness discovery warning', { warning: found.warning, harnessPath: found.harnessPath, workspaceRoot: found.workspaceRoot });
 
   if (debug) {
-    stream.markdown(`\n> [debug] harness: \`${found.harnessPath}\` (source: ${found.source}) | mode: \`${executorMode}\`\n\n`);
+    stream.markdown(`\n> [debug] harness: \`${found.harnessPath}\` | workspace: \`${found.workspaceRoot}\` (source: ${found.source}) | mode: \`${executorMode}\`\n\n`);
+    if (found.warning) stream.markdown(`> [debug] warning: ${found.warning}\n\n`);
   }
 
   appendFlow(paths, {
@@ -185,6 +223,8 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
       });
       logger?.info('legacy router result', {
         sessionId,
+        harnessPath: found.harnessPath,
+        workspaceRoot: found.workspaceRoot,
         hookSpecificOutput: routerResult.hookSpecificOutput,
         decision: routerResult.decision,
         hasUserMessage: Boolean(routerResult.modifiedParameters?.userMessage),
@@ -203,11 +243,48 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
       return;
     }
   } else {
-    const analysis = classifyPrompt(request.prompt, paths);
+    let analysis = classifyPrompt(request.prompt, paths);
+    // actionItems override: trivial intent but unresolved items exist → bump to inspect
+    const pendingItems = loadActionItemsCount(paths);
+    if (pendingItems > 0 && (analysis.intent === 'question' || analysis.intent === 'query')) {
+      analysis = { ...analysis, intent: 'inspect', pipeline: normalizePipeline('inspect', ['Inspector']), reason: `[extension-router] actionItems override (${pendingItems}건 미해결)` };
+    }
     badge = buildBadge(analysis);
     parsed = { intent: analysis.intent, pipeline: analysis.pipeline, classifier: analysis.classifier };
     modelUserMessage = buildInternalUserMessage(analysis, request.prompt, paths);
-    logger?.info('extension router result', { sessionId, intent: analysis.intent, pipeline: analysis.pipeline });
+    logger?.info('extension router result', {
+      sessionId,
+      harnessPath: found.harnessPath,
+      workspaceRoot: found.workspaceRoot,
+      intent: analysis.intent,
+      pipeline: analysis.pipeline,
+      complexity: analysis.complexity,
+      stacks: analysis.stacks,
+      reason: analysis.reason,
+      pendingActionItems: pendingItems,
+    });
+  }
+
+  // 채팅 히스토리 주입 (최근 5턴, 싱글세션/패스스루 모두 활용)
+  const historyTurns = ((context as any).history ?? []).slice(-10);
+  if (historyTurns.length > 0) {
+    const historyLines: string[] = [];
+    for (const turn of historyTurns) {
+      if (turn instanceof vscode.ChatRequestTurn) {
+        historyLines.push(`User: ${(turn as any).prompt}`);
+      } else if (turn instanceof vscode.ChatResponseTurn) {
+        const textParts = ((turn as any).response as unknown[])
+          .filter((p: unknown) => p instanceof vscode.ChatResponseMarkdownPart)
+          .map((p: unknown) => (p as vscode.ChatResponseMarkdownPart).value.value)
+          .join('');
+        if (textParts.trim()) {
+          historyLines.push(`Assistant: ${textParts.trim().slice(0, 500)}`);
+        }
+      }
+    }
+    if (historyLines.length > 0) {
+      modelUserMessage = '## [\uc774\uc804 \ub300\ud654 \uae30\ub85d]\n' + historyLines.join('\n') + '\n\n---\n\n' + modelUserMessage;
+    }
   }
 
   if (badge) {
@@ -215,6 +292,23 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
   } else {
     stream.markdown('> ⚠️ Maestro 분류 헤더 추출 실패\n\n');
     if (debug) stream.markdown('```\n[debug] userMessage head:\n' + modelUserMessage.slice(0, 600) + '\n```\n\n');
+  }
+
+  // actionItems 미해결 배너 — debug 설정 없이도 항상 표시
+  const actionItemCountForBanner = loadActionItemsCount(paths);
+  if (actionItemCountForBanner > 0) {
+    stream.markdown(`> ⚠️ **미해결 actionItems ${actionItemCountForBanner}건** — 이번 실행에서 먼저 해소됩니다\n\n`);
+  }
+
+  if (debug && !useLegacyRouter) {
+    const parsedAnalysis = { intent: parsed.intent, pipeline: parsed.pipeline, reason: routerReason };
+    stream.markdown(
+      `> [debug] intent=\`${parsed.intent}\` pipeline=\`${parsed.pipeline.join(' → ') || '없음'}\`\n` +
+      (routerReason ? `> [debug] 이유: ${routerReason}\n` : '') +
+      (actionItemCountForBanner > 0 ? `> [debug] actionItems: ${actionItemCountForBanner}건\n` : '') +
+      '\n',
+    );
+    void parsedAnalysis;
   }
 
   if (routerDecision === 'ask' && routerReason) {
@@ -251,7 +345,7 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
 
   if (executorMode === 'multi-agent') {
     if (parsed.pipeline.length === 0) {
-      stream.markdown('\n⚠️ multi-agent 모드인데 파이프라인을 파싱하지 못했습니다. passthrough로 폴백합니다.\n\n');
+      logger?.info('direct answer fallback', { sessionId, intent: parsed.intent, executorMode, toolMode: 'none' });
       await runPassthrough({ model, userMessage: modelUserMessage, stream, token });
       return;
     }
@@ -260,6 +354,17 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     }
     const actionCount = loadActionItemsCount(paths);
     const startedAt = Date.now();
+    const toolMode = isReadOnlyIntent(parsed.intent) ? 'read-only' : 'full';
+    logger?.info('pipeline start', {
+      sessionId,
+      harnessPath: found.harnessPath,
+      workspaceRoot: found.workspaceRoot,
+      pipeline: parsed.pipeline,
+      intent: parsed.intent,
+      toolMode,
+      model: { name: model.name, vendor: model.vendor, family: model.family },
+      executorMode,
+    });
     const results = await executePipeline(parsed.pipeline, {
       paths,
       pipelineId: parsed.intent || 'unknown',
@@ -275,9 +380,13 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
       maxLoggedOutputChars,
       toolInvocationToken: request.toolInvocationToken,
       enableTools: true,
+      toolMode,
       logger: logger ?? undefined,
     });
-    if (actionCount > 0) {
+    const pipelineSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+    stream.markdown(`\n> ⏱️ 파이프라인 완료: **${pipelineSec}s** | 단계: ${results.length} | intent: \`${parsed.intent}\`\n`);
+    logger?.info('pipeline complete', { sessionId, durationMs: Date.now() - startedAt, steps: results.length, intent: parsed.intent });
+    if (actionCount > 0 && requiresAuditAndRelease(parsed.intent)) {
       clearActionItems(paths);
       if (debug) stream.markdown(`\n> [debug] cleared ${actionCount} actionItems after multi-agent run\n`);
     }
@@ -291,9 +400,102 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     return;
   }
 
+  if (executorMode === 'single-session') {
+    await runSingleSession({ model, userMessage: modelUserMessage, stream, token, toolInvocationToken: request.toolInvocationToken, paths, pipeline: parsed.pipeline, intent: parsed.intent });
+    return;
+  }
+
   await runPassthrough({ model, userMessage: modelUserMessage, stream, token });
 };
 
+
+async function runSingleSession(args: {
+  model: vscode.LanguageModelChat;
+  userMessage: string;
+  stream: vscode.ChatResponseStream;
+  token: vscode.CancellationToken;
+  toolInvocationToken?: vscode.ChatParticipantToolToken;
+  paths?: HarnessPaths;
+  pipeline?: string[];
+  intent?: string;
+}): Promise<void> {
+  // pipeline이 있으면 maestro_invoke_agent 순서 지시 블록을 앞에 주입
+  let userMessageWithPipeline = args.userMessage;
+  if (args.pipeline && args.pipeline.length > 0) {
+    const steps = args.pipeline.map((s, i) =>
+      `${i + 1}. maestro_invoke_agent({ agent_name: "${s}", task: "<이전 단계 결과를 반영한 작업>" })`
+    ).join("\n");
+    const pipelineStr = args.pipeline.join(" -> ");
+    const directive =
+      `## [파이프라인 실행 지시]\nintent: ${args.intent ?? 'unknown'}\npipeline: ${pipelineStr}\n\n` +
+      `아래 순서대로 maestro_invoke_agent 도구로 각 에이전트를 호출하세요:\n${steps}\n\n` +
+      `각 단계 출력을 다음 단계 prior_context로 전달하세요.\n\n---\n\n`;
+    userMessageWithPipeline = directive + args.userMessage;
+  }
+  const messages: vscode.LanguageModelChatMessage[] = [vscode.LanguageModelChatMessage.User(userMessageWithPipeline)];
+  const OUTER_TOOL_NAMES = ['maestro_read_file', 'maestro_list_files', 'maestro_search_files', MAESTRO_INVOKE_AGENT_TOOL_NAME];
+  const tools = vscode.lm.tools.filter(t => OUTER_TOOL_NAMES.includes(t.name));
+  let toolCallCount = 0;
+  setActiveInvokerContext(args.model, args.paths ?? null, args.toolInvocationToken);
+  try {
+    const maxRounds = tools.length > 0 ? 10 : 1;
+    for (let round = 0; round < maxRounds; round++) {
+      const response = await args.model.sendRequest(messages, {
+        tools,
+        toolMode: tools.length > 0 ? vscode.LanguageModelChatToolMode.Auto : undefined,
+        justification: 'Maestro single-session with agent invocation support.',
+      }, args.token);
+      const assistantParts: Array<vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart> = [];
+      const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+      for await (const part of response.stream) {
+        if (args.token.isCancellationRequested) return;
+        if (part instanceof vscode.LanguageModelTextPart) {
+          assistantParts.push(part);
+          args.stream.markdown(part.value);
+        } else if (part instanceof vscode.LanguageModelToolCallPart) {
+          assistantParts.push(part);
+          toolCalls.push(part);
+          toolCallCount++;
+          logger?.info('single-session tool call requested', { name: part.name, input: part.input });
+          if (part.name === MAESTRO_INVOKE_AGENT_TOOL_NAME) {
+            const agentName = (part.input as Record<string, unknown>)?.agent_name ?? '?';
+            args.stream.markdown(`\n\n⚙️ **${agentName}** 에이전트 호입 중…\n`);
+          } else {
+            args.stream.markdown(`\n> 🔧 \`${part.name}\`\n`);
+          }
+        }
+      }
+      if (toolCalls.length === 0) break;
+      messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+      for (const call of toolCalls) {
+        const result = await vscode.lm.invokeTool(call.name, {
+          input: call.input,
+          toolInvocationToken: args.toolInvocationToken,
+        }, args.token);
+        messages.push(vscode.LanguageModelChatMessage.User([
+          new vscode.LanguageModelToolResultPart(call.callId, result.content),
+        ]));
+        logger?.info('single-session tool call completed', { name: call.name, callId: call.callId });
+        if (call.name === MAESTRO_INVOKE_AGENT_TOOL_NAME) {
+          const agentName = (call.input as Record<string, unknown>)?.agent_name ?? '?';
+          args.stream.markdown(`\n✅ **${agentName}** 완료\n`);
+        }
+      }
+    }
+    logger?.info('single-session complete', { toolCallCount, messageCount: messages.length });
+  } catch (e) {
+    logger?.error('single-session failed', e);
+    if (e instanceof vscode.LanguageModelError) {
+      args.stream.markdown(`\n\n⚠️ LLM 오류 (${e.code}): ${e.message}`);
+    } else if (e instanceof Error) {
+      args.stream.markdown(`\n\n⚠️ 응답 생성 실패: ${e.message}`);
+    } else {
+      throw e;
+    }
+  } finally {
+    setActiveInvokerContext(null, null);
+  }
+}
 async function runPassthrough(args: {
   model: vscode.LanguageModelChat;
   userMessage: string;
@@ -362,7 +564,7 @@ export function activate(context: vscode.ExtensionContext): void {
   }));
 
   // 6) vscode.lm 도구 등록 (Phase 3 스캐폴딩)
-  registerTools(context, resolveHarnessPath);
+  registerTools(context, resolveHarnessPaths);
 
   // 7) 로그 파일 변경 → 자동 refresh
   const watcher = new HarnessWatcher(refresh);
@@ -389,3 +591,13 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
   /* ChatParticipant + subscriptions로 자동 dispose */
 }
+
+
+
+
+
+
+
+
+
+

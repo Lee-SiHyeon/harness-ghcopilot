@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import { HarnessPaths } from './paths';
+import { redactSecrets, redactUnknown } from './redaction';
 
 export interface PipelineLogEntry {
   pipeline_id?: string;
@@ -17,8 +18,8 @@ export function appendPipelineStep(paths: HarnessPaths, entry: PipelineLogEntry)
       ts: new Date().toISOString(),
       pipeline_id: entry.pipeline_id,
       step: entry.step,
-      output: entry.output ?? '',
-      ...(entry.extra || {}),
+      output: redactSecrets(entry.output ?? ''),
+      ...(redactUnknown(entry.extra || {}) as Record<string, unknown>),
     };
     fs.appendFileSync(paths.log(PIPELINE_NAME), JSON.stringify(record) + '\n', 'utf8');
   } catch {

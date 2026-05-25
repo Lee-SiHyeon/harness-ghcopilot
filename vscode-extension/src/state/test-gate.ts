@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { HarnessPaths } from './paths';
+import { redactSecrets } from './redaction';
 
 export interface TestEvidence {
   ts: string | null;
@@ -19,25 +20,24 @@ export interface TestGateState {
   lastWarnedStateSignature?: string | null;
 }
 
-const TEST_CMD_PATTERNS = [
-  /\bnpm\s+(run\s+)?test\b/i,
-  /\bpnpm\s+(run\s+)?test\b/i,
-  /\byarn\s+(run\s+)?test\b/i,
-  /\bvitest\b/i,
-  /\bjest\b/i,
-  /\bpytest\b/i,
-  /\bpython\s+-m\s+pytest\b/i,
-  /\bgo\s+test\b/i,
-  /\bcargo\s+test\b/i,
-  /\bmvn\s+(.*\s+)?test\b/i,
-  /\bgradle\s+(.*\s+)?test\b/i,
-  /\bmocha\b/i,
-  /\bnpx\s+(vitest|jest|mocha)\b/i,
-  /\bnode\s+tests\/maestro-suite\.test\.js\b/i,
-];
+const EXACT_TEST_COMMANDS = new Set([
+  'npm test',
+  'npm run test',
+  'pnpm test',
+  'pnpm run test',
+  'yarn test',
+  'yarn run test',
+]);
+
+function commandTokens(command: string): string[] | undefined {
+  if (/[;&|<>`$\r\n]/.test(command)) return undefined;
+  const tokens = command.trim().split(/\s+/).filter(Boolean);
+  return tokens.length > 0 ? tokens : undefined;
+}
 
 export function isTestCommand(command: string): boolean {
-  return TEST_CMD_PATTERNS.some(p => p.test(command));
+  const tokens = commandTokens(command);
+  return !!tokens && EXACT_TEST_COMMANDS.has(tokens.map(t => t.toLowerCase()).join(' '));
 }
 
 function readJson<T>(file: string, fallback: T): T {
@@ -74,13 +74,20 @@ export function markFileChanged(paths: HarnessPaths, toolName: string, changedPa
     warnedTodoKeys: [],
     lastWarnedStateSignature: null,
   });
+  // Invalidate previous evidence so any valid PASS must be recorded after this change
+  writeJson(paths.testEvidencePath, { ts: null, status: null });
 }
 
 export function recordTestEvidence(
   paths: HarnessPaths,
   evidence: Omit<TestEvidence, 'ts'> & { ts?: string | null },
 ): TestEvidence {
-  const record = { ts: evidence.ts || new Date().toISOString(), ...evidence };
+  const record = {
+    ts: evidence.ts || new Date().toISOString(),
+    ...evidence,
+    command: evidence.command ? redactSecrets(evidence.command) : evidence.command,
+    evidence: evidence.evidence ? redactSecrets(evidence.evidence) : evidence.evidence,
+  };
   writeJson(paths.testEvidencePath, record);
   return record;
 }
@@ -99,9 +106,9 @@ export function isEvidenceValid(paths: HarnessPaths): boolean {
 }
 
 export function determineTestResult(exitCode: number | null, output: string): 'PASS' | 'FAIL' {
-  if (exitCode !== null) return exitCode === 0 ? 'PASS' : 'FAIL';
   const lower = output.toLowerCase();
   const hasFail = /\b(failed|failure|error)\b|\d+\s+failed|tests\s+failed/i.test(lower);
-  const hasPass = /\b(passed|all.*pass|ok)\b|\d+\s+passed|tests\s+passed/i.test(lower);
+  const hasPass = /\b(pass|passed|passing|all tests passed|ok)\b|\d+\s+passed|tests\s+passed/i.test(lower);
+  if (exitCode !== 0) return 'FAIL';
   return hasPass && !hasFail ? 'PASS' : 'FAIL';
 }

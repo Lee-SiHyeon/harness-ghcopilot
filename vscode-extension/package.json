@@ -162,14 +162,81 @@
         "modelDescription": "harness 워크스페이스 내의 파일을 읽습니다 (최대 100KB, 기본). path는 harness 부모 기준 상대경로 또는 절대경로.",
         "userDescription": "harness 워크스페이스 안의 파일 내용을 읽습니다.",
         "canBeReferencedInPrompt": false,
-        "tags": ["maestro"],
+        "tags": [
+          "maestro"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
-            "path": { "type": "string", "description": "파일 경로 (harness 부모 기준 상대 또는 절대)" },
-            "maxBytes": { "type": "number", "description": "최대 읽기 바이트 (기본 100000, 상한 1000000)" }
+            "path": {
+              "type": "string",
+              "description": "파일 경로 (harness 부모 기준 상대 또는 절대)"
+            },
+            "maxBytes": {
+              "type": "number",
+              "description": "최대 읽기 바이트 (기본 100000, 상한 1000000)"
+            }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
+        }
+      },
+      {
+        "name": "maestro_list_files",
+        "displayName": "Maestro: List Files",
+        "modelDescription": "harness 워크스페이스 안의 파일 목록을 읽기 전용으로 나열합니다. node_modules, .git, out, dist는 기본 제외합니다.",
+        "userDescription": "파일 목록을 읽기 전용으로 나열합니다.",
+        "canBeReferencedInPrompt": false,
+        "tags": [
+          "maestro"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "type": "string",
+              "description": "검색 루트 (harness 부모 기준 상대 또는 절대, 기본 .)"
+            },
+            "maxFiles": {
+              "type": "number",
+              "description": "최대 파일 수 (기본 200, 상한 1000)"
+            }
+          }
+        }
+      },
+      {
+        "name": "maestro_search_files",
+        "displayName": "Maestro: Search Files",
+        "modelDescription": "harness 워크스페이스 안에서 정규식 패턴을 읽기 전용으로 검색합니다.",
+        "userDescription": "파일 내용을 읽기 전용으로 검색합니다.",
+        "canBeReferencedInPrompt": false,
+        "tags": [
+          "maestro"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "검색할 JavaScript 정규식 패턴"
+            },
+            "root": {
+              "type": "string",
+              "description": "검색 루트 (harness 부모 기준 상대 또는 절대, 기본 .)"
+            },
+            "include": {
+              "type": "string",
+              "description": "파일명 와일드카드 필터 예: *.ts"
+            },
+            "maxMatches": {
+              "type": "number",
+              "description": "최대 매치 수 (기본 100, 상한 500)"
+            }
+          },
+          "required": [
+            "pattern"
+          ]
         }
       },
       {
@@ -178,14 +245,23 @@
         "modelDescription": "harness 워크스페이스에 파일을 씁니다. .env, 키 파일, 보호 디렉토리(.github/hooks 등)는 file-guard 정책으로 차단되거나 사용자 확인을 요구합니다.",
         "userDescription": "파일을 생성/덮어쓰기 — 가드 정책을 적용합니다.",
         "canBeReferencedInPrompt": false,
-        "tags": ["maestro"],
+        "tags": [
+          "maestro"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
-            "path":    { "type": "string" },
-            "content": { "type": "string" }
+            "path": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            }
           },
-          "required": ["path", "content"]
+          "required": [
+            "path",
+            "content"
+          ]
         }
       },
       {
@@ -194,14 +270,24 @@
         "modelDescription": "터미널 명령을 사용자 확인 후 실행합니다. rm -rf, git push --force 등 파괴 패턴은 safety-guard로 차단/경고합니다.",
         "userDescription": "터미널 명령 실행 (가드 적용).",
         "canBeReferencedInPrompt": false,
-        "tags": ["maestro"],
+        "tags": [
+          "maestro"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
-            "command": { "type": "string", "description": "실행할 명령" },
-            "cwd":     { "type": "string", "description": "작업 디렉토리 (선택)" }
+            "command": {
+              "type": "string",
+              "description": "실행할 명령"
+            },
+            "cwd": {
+              "type": "string",
+              "description": "작업 디렉토리 (선택)"
+            }
           },
-          "required": ["command"]
+          "required": [
+            "command"
+          ]
         }
       }
     ],
@@ -232,13 +318,18 @@
         },
         "maestroChat.executorMode": {
           "type": "string",
-          "default": "multi-agent",
-          "enum": ["passthrough", "multi-agent"],
+          "default": "single-session",
+          "enum": [
+            "passthrough",
+            "single-session",
+            "multi-agent"
+          ],
           "enumDescriptions": [
             "Phase 1 동작: 분류 → 배지 출력 → Maestro userMessage 전체를 단일 LLM 호출. 빠르지만 LLM이 멀티 에이전트 흐름을 스스로 모방해야 함.",
+            "단일 LLM 세션에서 읽기 전용 Maestro 도구 결과를 messages 배열에 누적하며 답변. 질문/조사에 빠르고 안전한 모드.",
             "Phase 2 동작: 파이프라인의 각 step마다 별개 vscode.lm 호출 (시스템=해당 agent의 .agent.md 본문). 진짜 멀티 에이전트 실행. 토큰 더 소비, 시간 더 걸림."
           ],
-          "description": "응답 생성 방식: passthrough(단일 호출) 또는 multi-agent(파이프라인 step별 호출)"
+          "description": "응답 생성 방식: passthrough(단일 호출), single-session(읽기 도구 포함 단일 세션), multi-agent(파이프라인 step별 호출)"
         },
         "maestroChat.modelFamily": {
           "type": "string",

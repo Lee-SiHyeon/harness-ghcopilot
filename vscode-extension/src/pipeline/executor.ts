@@ -4,7 +4,7 @@ import { HarnessPaths } from '../state/paths';
 import { appendFlow, newCorrelationId } from '../state/subagent-flow';
 import { appendPipelineStep } from '../state/pipeline-log';
 import { getGateState, getTestEvidence, isEvidenceValid } from '../state/test-gate';
-import { MAESTRO_TOOL_NAMES } from '../tools/registry';
+import { MAESTRO_READONLY_TOOL_NAMES, MAESTRO_TOOL_NAMES } from '../tools/registry';
 import { loadPipelineConfig } from './config';
 
 export interface ExecutorContext {
@@ -22,6 +22,7 @@ export interface ExecutorContext {
   maxLoggedOutputChars?: number;
   toolInvocationToken?: vscode.ChatParticipantToolToken;
   enableTools?: boolean;
+  toolMode?: 'full' | 'read-only';
   logger?: {
     info(message: string, data?: unknown): void;
     warn(message: string, data?: unknown): void;
@@ -32,6 +33,8 @@ export interface ExecutorContext {
 export interface StepResult {
   agentName: string;
   output: string;
+  shortSummary?: string;
+  truncated?: boolean;
   correlationId: string;
   durationMs: number;
   skipped?: boolean;
@@ -68,10 +71,10 @@ export async function executePipeline(
     results.push(result);
 
     if (agentName === 'Tester' && testerFailed(ctx, result) && hasImplementer) {
-      for (let retry = 1; retry <= maxTesterRetries && testerFailed(ctx, result); retry++) {
+      for (let retry = 1; retry <= maxTesterRetries; retry++) {
         if (ctx.cancellation.isCancellationRequested) break;
         ctx.stream.markdown(
-          `\n\n> 🔁 Tester 실패 감지 — Implementer 재시도 ${retry}/${maxTesterRetries} 후 Tester 재검증\n\n`,
+          '\n\n> 🔁 Tester 실패 감지 — Implementer 재시도 ' + retry + '/' + maxTesterRetries + ' 후 Tester 재검증\n\n',
         );
         const implRetry = await runStep('Implementer', i + 1, steps.length, ctx, results, retry);
         results.push(implRetry);
@@ -82,7 +85,6 @@ export async function executePipeline(
     }
   }
 
-  ctx.stream.markdown(`\n\n---\n\n✅ 파이프라인 완료 (${results.length}개 단계 기록).\n`);
   return results;
 }
 
@@ -123,14 +125,24 @@ async function runStep(
   if (ctx.debug) ctx.stream.markdown(`> [debug] system prompt ${agent.systemPrompt.length} chars\n\n`);
 
   let output = '';
+  let promptChars = 0;
+  let priorChars = 0;
+  let toolCallCount = 0;
+  let priorTruncated = false;
   let errorMessage: string | undefined;
   try {
-    const userMessage = buildUserMessage(ctx, agent, priorResults, attempt);
+    const built = buildUserMessage(ctx, agent, priorResults, attempt);
+    const userMessage = built.message;
+    promptChars = agent.systemPrompt.length + userMessage.length;
+    priorChars = built.priorChars;
+    priorTruncated = built.truncated;
     const messages: vscode.LanguageModelChatMessage[] = [
       vscode.LanguageModelChatMessage.User(agent.systemPrompt),
       vscode.LanguageModelChatMessage.User(userMessage),
     ];
-    output = await runAgentModelLoop(ctx, messages);
+    const loopResult = await runAgentModelLoop(ctx, messages);
+    output = loopResult.output;
+    toolCallCount = loopResult.toolCallCount;
     if (ctx.streamAgentOutputs === false) {
       ctx.stream.markdown(`_(출력 ${output.length} chars 생성됨 — 로그에 기록)_\n`);
     }
@@ -141,23 +153,56 @@ async function runStep(
   }
 
   const durationMs = Date.now() - t0;
+  const outputTruncated = output.length > (ctx.maxLoggedOutputChars ?? 4000);
+  const shortSummary = summarizeOutput(output);
   appendStop(ctx, agentName, correlationId, startTs, durationMs, errorMessage ? { error: errorMessage } : {});
   appendPipelineStep(ctx.paths, {
     pipeline_id: ctx.pipelineId,
     step: attempt ? `${agentName}#retry${attempt}` : agentName,
     output: output.slice(0, ctx.maxLoggedOutputChars ?? 4000),
-    extra: { durationMs, correlationId, attempt, ...(errorMessage ? { error: errorMessage } : {}) },
+    extra: {
+      durationMs,
+      correlationId,
+      attempt,
+      promptChars,
+      priorChars,
+      toolCallCount,
+      truncated: outputTruncated,
+      priorTruncated,
+      shortSummary,
+      ...(errorMessage ? { error: errorMessage } : {}),
+    },
   });
   ctx.logger?.info('agent stop', {
     agentName,
     durationMs,
     chars: output.length,
+    promptChars,
+    priorChars,
+    toolCallCount,
+    truncated: outputTruncated,
     correlationId,
     attempt,
     error: errorMessage,
   });
 
-  return { agentName, output, correlationId, durationMs, errorMessage, attempt };
+  const stepSec = (durationMs / 1000).toFixed(1);
+  if (!errorMessage) {
+    ctx.stream.markdown(`\n> ✅ **${agentName}** 완료 (${stepSec}s, ${output.length} chars)\n`);
+  } else {
+    ctx.stream.markdown(`\n> ❌ **${agentName}** 실패 (${stepSec}s): ${errorMessage}\n`);
+  }
+
+  return {
+    agentName,
+    output,
+    shortSummary,
+    truncated: outputTruncated,
+    correlationId,
+    durationMs,
+    errorMessage,
+    attempt,
+  };
 }
 
 function appendStop(
@@ -231,12 +276,17 @@ function blockRelease(ctx: ExecutorContext, results: StepResult[]): StepResult {
 async function runAgentModelLoop(
   ctx: ExecutorContext,
   messages: vscode.LanguageModelChatMessage[],
-): Promise<string> {
+): Promise<{ output: string; toolCallCount: number }> {
   const tools = ctx.enableTools === false
     ? []
-    : vscode.lm.tools.filter(t => MAESTRO_TOOL_NAMES.includes(t.name));
+    : vscode.lm.tools.filter(t => {
+      const allowed = ctx.toolMode === 'read-only' ? MAESTRO_READONLY_TOOL_NAMES : MAESTRO_TOOL_NAMES;
+      return allowed.includes(t.name);
+    });
   let output = '';
+  let toolCallCount = 0;
   const maxRounds = tools.length > 0 ? 4 : 1;
+  const outputCap = (ctx.maxLoggedOutputChars ?? 4000) * 2;
 
   for (let round = 0; round < maxRounds; round++) {
     const response = await ctx.model.sendRequest(messages, {
@@ -252,12 +302,18 @@ async function runAgentModelLoop(
       if (ctx.cancellation.isCancellationRequested) break;
       if (part instanceof vscode.LanguageModelTextPart) {
         assistantParts.push(part);
-        output += part.value;
+        if (output.length < outputCap) {
+          if (output.length < outputCap) {
+          output += part.value;
+        }
+        }
         if (ctx.streamAgentOutputs !== false) ctx.stream.markdown(part.value);
       } else if (part instanceof vscode.LanguageModelToolCallPart) {
         assistantParts.push(part);
         toolCalls.push(part);
+        toolCallCount++;
         ctx.logger?.info('tool call requested', { name: part.name, input: part.input });
+        ctx.stream.markdown(`\n> 🔧 \`${part.name}\`\n`);
       }
     }
 
@@ -275,7 +331,7 @@ async function runAgentModelLoop(
       ctx.logger?.info('tool call completed', { name: call.name, callId: call.callId });
     }
   }
-  return output;
+  return { output, toolCallCount };
 }
 
 function buildUserMessage(
@@ -283,8 +339,10 @@ function buildUserMessage(
   agent: AgentDefinition,
   priorResults: StepResult[],
   attempt: number,
-): string {
+): { message: string; priorChars: number; truncated: boolean } {
   const parts: string[] = [];
+  let priorChars = 0;
+  let truncated = false;
   if (ctx.maestroContext.trim()) {
     parts.push('## [Maestro 컨텍스트]');
     parts.push(ctx.maestroContext);
@@ -293,9 +351,11 @@ function buildUserMessage(
     parts.push('## [이전 단계 결과]');
     for (const prior of priorResults) {
       const maxChars = ctx.maxPriorOutputChars ?? 4000;
+      priorChars += prior.output.length;
       const snippet = prior.output.length > maxChars
         ? prior.output.slice(0, maxChars) + '\n...(생략)'
         : prior.output;
+      if (prior.output.length > maxChars) truncated = true;
       parts.push(`### ${prior.agentName}${prior.attempt ? ` retry ${prior.attempt}` : ''}\n${snippet || '(빈 출력)'}`);
     }
   }
@@ -305,7 +365,9 @@ function buildUserMessage(
   parts.push('## [이번 단계 임무]');
   const toolNote = ctx.enableTools === false
     ? '도구 호출은 비활성화되어 있다.'
-    : '필요하면 `maestro_read_file`, `maestro_write_file`, `maestro_run_terminal` 도구를 사용한다.';
+    : ctx.toolMode === 'read-only'
+      ? '읽기 전용 모드다. `maestro_read_file`, `maestro_list_files`, `maestro_search_files`만 사용하고 파일 쓰기, 터미널 실행, git 작업은 하지 않는다.'
+      : '필요하면 `maestro_read_file`, `maestro_list_files`, `maestro_search_files`, `maestro_write_file`, `maestro_run_terminal` 도구를 사용한다.';
   const testerNote = agent.name === 'Tester'
     ? 'Tester는 반드시 적절한 테스트 명령을 `maestro_run_terminal`로 실행하고 PASS/FAIL 근거를 남긴다.'
     : '';
@@ -317,5 +379,10 @@ function buildUserMessage(
     `배지/파이프라인 헤더는 extension UI가 이미 출력했으므로 반복하지 마세요. ${toolNote} ${testerNote} ${releaseNote} ` +
     (attempt ? `이번 호출은 재시도 ${attempt}회차이므로 이전 실패 원인을 명시적으로 고치세요.` : ''),
   );
-  return parts.join('\n\n');
+  return { message: parts.join('\n\n'), priorChars, truncated };
+}
+
+function summarizeOutput(output: string): string {
+  const normalized = output.replace(/\s+/g, ' ').trim();
+  return normalized.slice(0, 240);
 }

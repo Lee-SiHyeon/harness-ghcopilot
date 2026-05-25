@@ -3,6 +3,7 @@ import { HarnessPaths } from './paths';
 import { appendActionItems, updateRetrospectiveDraft, ActionItem } from './action-items';
 import { getGateState, isEvidenceValid } from './test-gate';
 import type { StepResult } from '../pipeline/executor';
+import { requiresAuditAndRelease } from '../pipeline/config';
 
 const ACTION_TEMPLATES: Record<string, string> = {
   Tester: 'implement/fix 파이프라인에서 Tester 호출 필수 — 다음 Reviewer 호출 전 확인',
@@ -36,7 +37,7 @@ export function buildPipelineActionItems(
   if ((intent === 'implement' || intent === 'fix') && !executed.includes('Tester')) {
     items.push({ source: 'absentAgent', agent: 'Tester', message: ACTION_TEMPLATES.Tester, ts });
   }
-  if (!executed.includes('Critic')) {
+  if (requiresAuditAndRelease(intent) && !executed.includes('Critic')) {
     items.push({ source: 'absentAgent', agent: 'Critic', message: ACTION_TEMPLATES.Critic, ts });
   }
   if (paths) {

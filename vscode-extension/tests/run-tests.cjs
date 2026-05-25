@@ -6,8 +6,10 @@ const path = require('path');
 const { envPathFor, getEnvValue, setEnvValue, clearEnvValue } = require('../out/env-file.js');
 const { deriveSpawnCwd, extractBadge, routerScriptPath, stripRouterDisplayDirectives } = require('../out/router-bridge.js');
 const { loadAgent } = require('../out/agents/loader.js');
-const { HarnessPaths } = require('../out/state/paths.js');
+const { displayRelativePath, HarnessPaths, resolveWorkspacePath } = require('../out/state/paths.js');
 const { checkCommand, checkFileWrite, loadGuards } = require('../out/tools/guards.js');
+const { appendPipelineStep } = require('../out/state/pipeline-log.js');
+const { redactSecrets } = require('../out/state/redaction.js');
 const { isGitChangeQuery, renderGitChangeReport } = require('../out/local-git.js');
 const { classifyPrompt, buildBadge, buildInternalUserMessage } = require('../out/router/internal.js');
 const { loadPipelineConfig, normalizePipeline } = require('../out/pipeline/config.js');
@@ -22,6 +24,10 @@ const {
 } = require('../out/state/test-gate.js');
 const { buildPipelineActionItems, finalizeRetrospective } = require('../out/state/retrospective.js');
 const { loadActionItems } = require('../out/state/action-items.js');
+const { createLogger } = require('../out/logging.js');
+const { npmTestSpawnSpec, runNpmTest } = require('../out/test-runner.js');
+
+const pendingTests = [];
 
 function mkdirp(p) {
   fs.mkdirSync(p, { recursive: true });
@@ -42,11 +48,12 @@ function makeHarness() {
   write(path.join(harness, 'hooks', 'scripts', 'maestro-router.js'), 'console.log("{}");\n');
   write(path.join(harness, 'mcp-server', 'dist', 'index.js'), 'console.log("mcp");\n');
   write(path.join(harness, 'mcp-server', 'package.json'), '{"name":"mcp-server"}\n');
+  write(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node tests/run-tests.cjs' } }));
   write(path.join(harness, 'meta', 'guards.json'), JSON.stringify({
     protectedDirs: ['hooks', 'agents', 'workflows', 'skills'],
     protectedFiles: ['maestro.agent.md'],
     sensitiveExtensions: ['.env', '.key', '.pem', '.crt', '.cer', '.p12', '.pfx', '.jks'],
-    envFilenamePattern: '\\.env(\\.[a-z]+)?$',
+    envFilenamePattern: '\\.env[^/]*$',
     lockFiles: ['package-lock.json'],
     destructiveCommands: [
       { name: 'rm -rf', regex: '\\brm\\s+-[rRfF]{1,4}\\s', flags: 'i', appliesTo: ['js', 'py'] },
@@ -78,7 +85,18 @@ function makeHarness() {
 
 function test(name, fn) {
   try {
-    fn();
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      pendingTests.push(result.then(
+        () => console.log(`PASS ${name}`),
+        (e) => {
+          console.error(`FAIL ${name}`);
+          console.error(e && e.stack ? e.stack : e);
+          process.exitCode = 1;
+        },
+      ));
+      return;
+    }
     console.log(`PASS ${name}`);
   } catch (e) {
     console.error(`FAIL ${name}`);
@@ -159,12 +177,70 @@ test('guards load SSOT and classify command/file writes', () => {
   const guards = loadGuards(fixture.paths);
   assert.ok(guards.protectedDirs.includes('agents'));
   assert.strictEqual(checkCommand(fixture.paths, 'rm -rf tmp').decision, 'deny');
-  assert.strictEqual(checkCommand(fixture.paths, 'git push --force-with-lease').decision, 'allow');
+  assert.strictEqual(checkCommand(fixture.paths, 'git push --force-with-lease').decision, 'deny');
+  assert.strictEqual(checkCommand(fixture.paths, 'npm test').decision, 'allow');
+  assert.strictEqual(checkCommand(fixture.paths, 'echo npm test').decision, 'deny');
+  assert.strictEqual(checkCommand(fixture.paths, 'npm test || true').decision, 'deny');
+  assert.strictEqual(checkCommand(fixture.paths, 'npm test > out.txt').decision, 'deny');
   assert.strictEqual(checkCommand(fixture.paths, 'DROP TABLE users').decision, 'deny');
   assert.strictEqual(checkFileWrite(fixture.paths, 'src/index.ts').decision, 'allow');
   assert.strictEqual(checkFileWrite(fixture.paths, '.env').decision, 'deny');
   assert.strictEqual(checkFileWrite(fixture.paths, '.github/agents/planner.agent.md').decision, 'ask');
   assert.strictEqual(checkFileWrite(fixture.paths, path.join(fixture.root, '..', 'outside.txt')).decision, 'deny');
+});
+
+
+test('workspace-aware path resolver allows active workspace and harness roots only', () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'maestro-workspace-root-'));
+  const harness = path.join(workspaceRoot, '.github');
+  mkdirp(path.join(harness, 'agents'));
+  const paths = new HarnessPaths(harness, workspaceRoot);
+  const insideWorkspace = resolveWorkspacePath(paths, path.join(workspaceRoot, 'src', 'app.ts'));
+  assert.strictEqual(insideWorkspace.allowed, true);
+  assert.strictEqual(insideWorkspace.rel, 'src/app.ts');
+  const insideHarness = resolveWorkspacePath(paths, path.join(harness, 'agents', 'planner.agent.md'));
+  assert.strictEqual(insideHarness.allowed, true);
+  assert.strictEqual(insideHarness.rel, '.github/agents/planner.agent.md');
+  assert.strictEqual(displayRelativePath(paths, insideHarness.abs), '.github/agents/planner.agent.md');
+  const outside = resolveWorkspacePath(paths, path.join(workspaceRoot, '..', 'outside.txt'));
+  assert.strictEqual(outside.allowed, false);
+});
+
+test('guards allow configured workspace root while preserving harness protections', () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'maestro-active-workspace-'));
+  const harness = path.join(workspaceRoot, '.github');
+  mkdirp(path.join(harness, 'meta'));
+  write(path.join(harness, 'meta', 'guards.json'), JSON.stringify({
+    protectedDirs: ['agents'],
+    protectedFiles: ['maestro.agent.md'],
+    sensitiveExtensions: ['.env', '.key'],
+    envFilenamePattern: '\\.env(\\.[a-z]+)?$',
+    lockFiles: [],
+    destructiveCommands: []
+  }));
+  const paths = new HarnessPaths(harness, workspaceRoot);
+  assert.strictEqual(checkFileWrite(paths, path.join(workspaceRoot, 'src', 'index.ts')).decision, 'allow');
+  assert.strictEqual(checkFileWrite(paths, path.join(harness, 'agents', 'planner.agent.md')).decision, 'ask');
+  assert.strictEqual(checkFileWrite(paths, path.join(workspaceRoot, '..', 'outside.txt')).decision, 'deny');
+});
+
+
+test('path resolver blocks symlink traversal out of workspace', () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'maestro-symlink-workspace-'));
+  const harness = path.join(workspaceRoot, '.github');
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'maestro-symlink-outside-'));
+  mkdirp(harness);
+  write(path.join(outsideRoot, 'secret.txt'), 'secret');
+  const linkPath = path.join(workspaceRoot, 'linked');
+  try {
+    fs.symlinkSync(outsideRoot, linkPath, 'dir');
+  } catch {
+    return;
+  }
+  const paths = new HarnessPaths(harness, workspaceRoot);
+  const resolved = resolveWorkspacePath(paths, path.join(linkPath, 'secret.txt'));
+  assert.strictEqual(resolved.allowed, false);
+  assert.strictEqual(resolved.symlinkBlocked, true);
 });
 
 test('MCP status exposes github-state tool surface and shared state files', () => {
@@ -218,6 +294,33 @@ test('internal TS router normalizes pipelines and builds badge without legacy ho
   assert.match(msg, /원본 요청/);
 });
 
+test('internal TS router keeps read-only questions away from Release', () => {
+  const question = classifyPrompt('안녕?', fixture.paths);
+  assert.strictEqual(question.intent, 'question');
+  assert.deepStrictEqual(question.pipeline, []);
+  assert.match(buildBadge(question), /직접 답변/);
+  assert.doesNotMatch(buildInternalUserMessage(question, '안녕?', fixture.paths), /Release/);
+
+  const inspect = classifyPrompt('지금 이 익스텐션에서 부족한게 뭐냐', fixture.paths);
+  assert.strictEqual(inspect.intent, 'inspect');
+  assert.deepStrictEqual(inspect.pipeline, ['Inspector']);
+  assert.strictEqual(inspect.needs_todo, false);
+});
+
+
+test('internal TS router keeps library questions direct unless Context7 is explicit', () => {
+  const reactQuestion = classifyPrompt('React가 뭐야?', fixture.paths);
+  assert.strictEqual(reactQuestion.intent, 'question');
+  assert.deepStrictEqual(reactQuestion.pipeline, []);
+
+  const vscodeQuestion = classifyPrompt('VS Code extension 설명해줘', fixture.paths);
+  assert.strictEqual(vscodeQuestion.intent, 'question');
+  assert.deepStrictEqual(vscodeQuestion.pipeline, []);
+
+  const context7Code = classifyPrompt('Context7로 React hook 코드 작성해줘', fixture.paths);
+  assert.strictEqual(context7Code.intent, 'implement');
+  assert.strictEqual(context7Code.pipeline[0], 'Context7 Docs Agent');
+});
 test('internal TS router injects saved todo and precompact resume blocks', () => {
   write(path.join(fixture.harness, 'logs', 'current-todos.json'), JSON.stringify({
     todos: [{ id: 1, title: 'finish migration', status: 'in-progress' }]
@@ -242,15 +345,16 @@ test('internal TS router treats missing or not-wired reports as fix', () => {
 
 test('extension router parity matrix covers hook classifier core intents', () => {
   const cases = [
-    ['리뷰해줘', 'review', ['Reviewer', 'Critic', 'Release']],
-    ['왜 그래?', 'question', ['Context7 Docs Agent', 'Critic', 'Release']],
+    ['리뷰해줘', 'review', ['Reviewer']],
+    ['왜 그래?', 'question', []],
     ['문서화해줘', 'document', ['Context7 Docs Agent', 'Documenter', 'Critic', 'Release']],
-    ['없는 것 같지?', 'fix', ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']],
-    ['누락됐어', 'fix', ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']],
+    ['없는 것 같지?', 'question', []],
+    ['누락됐어', 'query', []],
     ['버그 고쳐', 'fix', ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']],
-    ['설계해줘', 'plan', ['Planner', 'Critic', 'Release']],
+    ['설계해줘', 'plan', ['Planner']],
     ['릴리즈해줘', 'release', ['Release', 'Critic']],
     ['만들어줘', 'implement', ['Planner', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']],
+    ['문제점들 고쳐줘', 'fix', ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']],
   ];
   for (const [prompt, intent, pipeline] of cases) {
     const analysis = classifyPrompt(prompt, fixture.paths);
@@ -267,55 +371,184 @@ test('extension package contributes MCP view and commands', () => {
   const commands = pkg.contributes.commands.map(c => c.command);
   assert.ok(commands.includes('maestroChat.openMcpConfig'));
   assert.ok(commands.includes('maestroChat.runExtensionTests'));
+  const tools = pkg.contributes.languageModelTools.map(t => t.name);
+  assert.ok(tools.includes('maestro_list_files'));
+  assert.ok(tools.includes('maestro_search_files'));
+  assert.ok(pkg.contributes.configuration.properties['maestroChat.executorMode'].enum.includes('single-session'));
 });
 
 test('test-gate marks writes stale and accepts newer PASS evidence', () => {
-  assert.strictEqual(isTestCommand('npm test'), true);
-  assert.strictEqual(isTestCommand('node tests/maestro-suite.test.js'), true);
-  assert.strictEqual(isTestCommand('echo hello'), false);
-  assert.strictEqual(determineTestResult(0, 'all good'), 'PASS');
-  assert.strictEqual(determineTestResult(1, 'failed'), 'FAIL');
+  const { root, harness, paths } = makeHarness();
+  try {
+    assert.strictEqual(isTestCommand('npm test'), true);
+    assert.strictEqual(isTestCommand('echo npm test'), false);
+    assert.strictEqual(isTestCommand('npm test || true'), false);
+    assert.strictEqual(isTestCommand('echo hello'), false);
+    assert.strictEqual(determineTestResult(0, 'all good'), 'FAIL');
+    assert.strictEqual(determineTestResult(0, '19 PASS'), 'PASS');
+    assert.strictEqual(determineTestResult(1, 'failed'), 'FAIL');
 
-  markFileChanged(fixture.paths, 'maestro_write_file', path.join(fixture.root, 'src', 'index.ts'));
-  const gate = getGateState(fixture.paths);
-  assert.ok(gate.requiredSince);
-  assert.strictEqual(isEvidenceValid(fixture.paths), false);
+    markFileChanged(paths, 'maestro_write_file', path.join(root, 'src', 'index.ts'));
+    const gate = getGateState(paths);
+    assert.ok(gate.requiredSince);
+    assert.strictEqual(isEvidenceValid(paths), false);
 
+    recordTestEvidence(paths, {
+      command: 'npm test',
+      result: 'PASS',
+      status: 'PASS',
+      exitCode: 0,
+      evidence: 'PASS',
+    });
+    assert.strictEqual(isEvidenceValid(paths), true);
+  } finally {
+    require('fs').rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test('redaction scrubs secrets from logs and evidence', () => {
+  const ghToken = 'gh' + 'p_' + '123456789012345678901234567890123456';
+  const secret = 'token=' + ghToken;
+  assert.doesNotMatch(redactSecrets(secret), /ghp_/);
   recordTestEvidence(fixture.paths, {
     command: 'npm test',
-    result: 'PASS',
-    status: 'PASS',
-    exitCode: 0,
-    evidence: 'PASS',
+    result: 'FAIL',
+    status: 'FAIL',
+    exitCode: 1,
+    evidence: secret,
   });
-  assert.strictEqual(isEvidenceValid(fixture.paths), true);
+  const evidenceText = fs.readFileSync(fixture.paths.testEvidencePath, 'utf8');
+  assert.doesNotMatch(evidenceText, /ghp_/);
+  appendPipelineStep(fixture.paths, {
+    step: 'redaction-test',
+    output: secret,
+    extra: { token: ghToken },
+  });
+  const pipelineText = fs.readFileSync(fixture.paths.log('pipeline.jsonl'), 'utf8');
+  assert.doesNotMatch(pipelineText, /ghp_/);
+  // AWS Access Key
+  const awsKey = 'AK' + 'IA' + '1234567890ABCDEF';
+  assert.doesNotMatch(redactSecrets('my key ' + awsKey + ' end'), new RegExp(awsKey));
+  // OpenAI API Key (48 chars)
+  const openAiToken = 's' + 'k-' + 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL';
+  assert.doesNotMatch(redactSecrets('key ' + openAiToken + ' end'), new RegExp(openAiToken));
+  // Anthropic API Key
+  assert.doesNotMatch(redactSecrets('sk-ant-api03-' + 'a'.repeat(89)), /sk-ant-api03-/);
+  // Slack Token
+  const slackToken = 'xo' + 'xb-' + '123456789012-1234567890123-abcdefghijklmnopqrstuvwx';
+  assert.doesNotMatch(redactSecrets('token ' + slackToken), new RegExp(slackToken.slice(0, 17)));
+});
+test('logger redacts secrets from messages and structured data', () => {
+  const token = 'ghp_' + '1'.repeat(36);
+  const bearer = 'Bearer ' + 'a'.repeat(32);
+  const apiKey = 'abcdef1234567890';
+  const lines = [];
+  const logger = createLogger({
+    appendLine(line) { lines.push(line); },
+    show() {},
+  });
+  logger.info(`token=${token}`, {
+    input: bearer,
+    nested: { password: 'super-secret-value' },
+  });
+  logger.error('failed', new Error(`api_key=${apiKey}`));
+  const text = lines.join('\n');
+  assert.doesNotMatch(text, /ghp_/);
+  assert.doesNotMatch(text, new RegExp(bearer));
+  assert.doesNotMatch(text, /super-secret-value/);
+  assert.doesNotMatch(text, new RegExp(apiKey));
+  assert.match(text, /\[REDACTED\]/);
 });
 
+test('npm test runner uses spawn without shell and captures passing output', async () => {
+  const spec = npmTestSpawnSpec();
+  assert.strictEqual(spec.shell, false);
+  if (process.platform === 'win32') {
+    assert.strictEqual(path.basename(spec.command).toLowerCase(), 'cmd.exe');
+    assert.deepStrictEqual(spec.args, ['/d', '/s', '/c', 'npm.cmd', 'test']);
+  } else {
+    assert.strictEqual(spec.command, 'npm');
+    assert.deepStrictEqual(spec.args, ['test']);
+  }
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'maestro-npm-test-runner-'));
+  const fakeRunner = path.join(root, 'fake-runner.cjs');
+  write(fakeRunner, 'console.log("PASS runner");\n');
+  const run = await runNpmTest(root, 30_000, {
+    command: process.execPath,
+    args: [fakeRunner],
+    shell: false,
+  });
+  assert.strictEqual(run.exitCode, 0);
+  assert.strictEqual(run.timedOut, false);
+  assert.match(run.stdout, /PASS runner/);
+});
 test('retrospective generates action items for missing suite agents', () => {
-  const planned = ['Planner', 'Implementer', 'Tester', 'Critic', 'Release'];
-  const results = [
-    { agentName: 'Planner', output: 'plan', correlationId: 'a', durationMs: 1 },
-    { agentName: 'Implementer', output: 'impl', correlationId: 'b', durationMs: 1 },
-    { agentName: 'Release', output: 'done', correlationId: 'c', durationMs: 1 },
-  ];
-  const items = buildPipelineActionItems('implement', planned, results);
-  assert.ok(items.some(i => i.agent === 'Tester'));
-  assert.ok(items.some(i => i.agent === 'Critic'));
+  const { root, harness, paths } = makeHarness();
+  try {
+    const planned = ['Planner', 'Implementer', 'Tester', 'Critic', 'Release'];
+    const results = [
+      { agentName: 'Planner', output: 'plan', correlationId: 'a', durationMs: 1 },
+      { agentName: 'Implementer', output: 'impl', correlationId: 'b', durationMs: 1 },
+      { agentName: 'Release', output: 'done', correlationId: 'c', durationMs: 1 },
+    ];
+    const items = buildPipelineActionItems('implement', planned, results);
+    assert.ok(items.some(i => i.agent === 'Tester'));
+    assert.ok(items.some(i => i.agent === 'Critic'));
+    assert.strictEqual(buildPipelineActionItems('inspect', ['Inspector'], [
+      { agentName: 'Inspector', output: 'report', correlationId: 'i', durationMs: 1 },
+    ]).some(i => i.agent === 'Critic' || i.agent === 'Release'), false);
 
-  markFileChanged(fixture.paths, 'maestro_write_file', path.join(fixture.root, 'src', 'changed.ts'));
-  finalizeRetrospective(fixture.paths, {
-    sessionId: 'session-test',
-    intent: 'implement',
-    plannedPipeline: planned,
-    results,
-    durationMs: 123,
-  });
-  const stored = loadActionItems(fixture.paths);
-  assert.ok(stored.some(i => i.agent === 'Tester'));
-  assert.ok(stored.some(i => i.source === 'testGate'));
-  assert.ok(fs.existsSync(fixture.paths.retroJsonlPath));
+    markFileChanged(paths, 'maestro_write_file', path.join(root, 'src', 'changed.ts'));
+    finalizeRetrospective(paths, {
+      sessionId: 'session-test',
+      intent: 'implement',
+      plannedPipeline: planned,
+      results,
+      durationMs: 123,
+    });
+    const stored = loadActionItems(paths);
+    assert.ok(stored.some(i => i.agent === 'Tester'));
+    assert.ok(stored.some(i => i.source === 'testGate'));
+    assert.ok(fs.existsSync(paths.retroJsonlPath));
+  } finally {
+    require('fs').rmSync(root, { recursive: true, force: true });
+  }
 });
 
-if (process.exitCode) {
-  process.exit(process.exitCode);
-}
+
+
+
+test('agent-tool: AGENT_TOOL_NAME constant and MAX_INVOKE_DEPTH', () => {
+  const { AGENT_TOOL_NAME, MAX_INVOKE_DEPTH } = require('../out/tools/agent-constants.js');
+  assert.strictEqual(AGENT_TOOL_NAME, 'maestro_invoke_agent');
+  assert.strictEqual(MAX_INVOKE_DEPTH, 2);
+});
+
+test('agent-tool: validateInvokeInput rejects null model', () => {
+  const { validateInvokeInput } = require('../out/tools/agent-constants.js');
+  const err = validateInvokeInput({ model: null, paths: {}, toolToken: undefined, depth: 0 }, { agent_name: 'Planner', task: 'test' });
+  assert.ok(err !== null, 'Should return error for null model');
+  assert.ok(err.includes('⚠'), 'Should be warning msg: ' + err);
+});
+
+test('agent-tool: validateInvokeInput blocks depth overflow', () => {
+  const { validateInvokeInput, MAX_INVOKE_DEPTH } = require('../out/tools/agent-constants.js');
+  const err = validateInvokeInput({ model: {}, paths: {}, toolToken: undefined, depth: MAX_INVOKE_DEPTH }, { agent_name: 'X', task: 'y' });
+  assert.ok(err !== null, 'Should fail at max depth');
+});
+
+test('agent-tool: validateInvokeInput passes valid inputs', () => {
+  const { validateInvokeInput } = require('../out/tools/agent-constants.js');
+  const ok = validateInvokeInput({ model: {}, paths: {}, toolToken: undefined, depth: 0 }, { agent_name: 'Reviewer', task: 'check' });
+  assert.strictEqual(ok, null);
+});
+
+
+
+Promise.all(pendingTests).then(() => {
+  if (process.exitCode) {
+    process.exit(process.exitCode);
+  }
+});
