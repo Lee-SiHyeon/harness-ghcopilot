@@ -101,7 +101,7 @@ npm install
   "maestroChat.debug": false,
 
   // Phase 1 동작 (단일 LLM 호출, 빠름) vs Phase 2 동작 (파이프라인 step마다 호출, 진짜 멀티 에이전트)
-  "maestroChat.executorMode": "passthrough",   // 또는 "multi-agent"
+  "maestroChat.executorMode": "multi-agent",   // 또는 "passthrough"
 
   // 선택 모델 family. 비워두면 첫 번째 Copilot 모델 사용.
   "maestroChat.modelFamily": "",
@@ -198,17 +198,24 @@ for await (fragment) stream.markdown(fragment)
 
 ## 실행 모드
 
-### passthrough (기본, Phase 1 동작)
-분류 → 배지 출력 → Maestro userMessage 전체를 **단일 LLM 호출**. 빠르지만 LLM이 multi-agent 흐름을 스스로 모방해야 한다.
-
-### multi-agent (Phase 2)
+### multi-agent (기본)
 파이프라인 각 step마다 **별도 vscode.lm 호출**:
 - system: `.github/agents/{agent}.agent.md` 본문
 - user: Maestro 컨텍스트 + 이전 step 출력 + 원본 요청
 - 각 step의 출력은 `### ⚙️ [N/M] {Agent} 실행 중…` 헤더와 함께 스트리밍
 - `logs/subagent-flow.jsonl`, `logs/pipeline.jsonl` 자동 기록 (기존 분석 도구 호환)
 
-토큰 더 소비, 시간 더 걸림. 진짜 multi-agent 추론이 필요할 때 사용.
+토큰 더 소비, 시간 더 걸리지만 extension이 파이프라인 step을 실제로 순차 실행한다.
+
+### passthrough (비추천 / 디버그용)
+분류 → 배지 출력 → Maestro userMessage 전체를 **단일 LLM 호출**. 빠르지만 LLM이 multi-agent 흐름을 스스로 모방해야 해서 파이프라인 이탈 가능성이 있다.
+
+### Deterministic Local Routes
+일부 workspace inspection 요청은 LLM/라우터를 거치지 않고 extension이 직접 처리한다.
+
+| 요청 예 | 실행 |
+|---|---|
+| `변경 들어온게 뭐지?`, `git diff 보여줘`, `status` | `Git Inspector → Release`: `git status --short`, `git diff --stat`, `git diff --cached --stat`, 최근 커밋 5개를 직접 조회 |
 
 `settings.json`에서 `maestroChat.executorMode` 전환.
 
@@ -218,7 +225,7 @@ for await (fragment) stream.markdown(fragment)
 - `maestro_run_terminal`은 터미널에 텍스트만 입력 (자동 실행 X) — Phase 4에서 결과 캡처와 함께 도입
 - Tester FAIL 시 Implementer 재호출 루프 없음 — Phase 4
 - 병렬 실행 없음
-- 매 turn 새 프로세스로 router 호출 (~수십 ms 오버헤드)
+- 일반 요청은 매 turn 새 프로세스로 router 호출 (~수십 ms 오버헤드). deterministic local route는 router를 건너뜀
 - vscode.lm으로 받는 모델은 Copilot 설정 따름
 - 사이드바 watcher는 Node fs.watch 기반 (workspace 외부 harness도 감시 가능하지만 일부 환경에서 이벤트 누락 가능 → 수동 refresh로 보완)
 

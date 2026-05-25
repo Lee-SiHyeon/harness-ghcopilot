@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { callMaestroRouter, extractBadge, routerScriptPath } from './router-bridge';
+import { callMaestroRouter, extractBadge, routerScriptPath, stripRouterDisplayDirectives } from './router-bridge';
 import { HarnessPaths } from './state/paths';
 import { clearActionItems, loadActionItemsCount } from './state/action-items';
 import { appendFlow, newCorrelationId } from './state/subagent-flow';
@@ -12,6 +12,7 @@ import { registerCommands } from './commands';
 import { registerTools } from './tools/registry';
 import { HarnessWatcher } from './watcher';
 import { createLogger, MaestroLogger } from './logging';
+import { inspectGitChanges, isGitChangeQuery, renderGitChangeReport } from './local-git';
 
 const PARTICIPANT_ID = 'maestro';
 const CONFIG_SECTION = 'maestroChat';
@@ -84,7 +85,7 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
   const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
   const debug = cfg.get<boolean>('debug', false);
   const timeoutMs = cfg.get<number>('routerTimeoutMs', 15_000);
-  const executorMode = (cfg.get<string>('executorMode', 'passthrough') as ExecutorMode);
+  const executorMode = (cfg.get<string>('executorMode', 'multi-agent') as ExecutorMode);
   const modelFamily = (cfg.get<string>('modelFamily') || '').trim();
   const streamAgentOutputs = cfg.get<boolean>('streamAgentOutputs', true);
   const maxPriorOutputChars = cfg.get<number>('maxPriorStepChars', 4000);
@@ -116,6 +117,56 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     source: 'extension-handler',
   });
 
+  if (isGitChangeQuery(request.prompt)) {
+    stream.markdown('```\n🎯 **작업 유형**: workspace-inspection\n📋 **파이프라인**: Git Inspector → Release\n🔍 **분류 방식**: Extension deterministic route\n```\n\n');
+    const gitCorrelationId = newCorrelationId();
+    const startTs = new Date().toISOString();
+    appendFlow(paths, {
+      event: 'SubagentStart',
+      agentName: 'Git Inspector',
+      sessionId,
+      correlationId: gitCorrelationId,
+      source: 'extension-deterministic-route',
+    });
+    const report = inspectGitChanges(found.harnessPath);
+    if (!report) {
+      stream.markdown('⚠️ git 저장소를 찾지 못했습니다. standalone `.github` clone이면 해당 폴더가 git repo인지 확인하세요.');
+      logger?.warn('git change query without git repository', { harnessPath: found.harnessPath });
+      appendFlow(paths, {
+        event: 'SubagentStop',
+        agentName: 'Git Inspector',
+        sessionId,
+        correlationId: gitCorrelationId,
+        startTs,
+        stopTs: new Date().toISOString(),
+        durationMs: Date.now() - Date.parse(startTs),
+        source: 'extension-deterministic-route',
+        error: 'git repository not found',
+      });
+      return;
+    }
+    const rendered = renderGitChangeReport(report);
+    logger?.info('git change report generated', {
+      sessionId,
+      cwd: report.cwd,
+      statusChars: report.status.length,
+      unstagedStatChars: report.unstagedStat.length,
+      stagedStatChars: report.stagedStat.length,
+    });
+    appendFlow(paths, {
+      event: 'SubagentStop',
+      agentName: 'Git Inspector',
+      sessionId,
+      correlationId: gitCorrelationId,
+      startTs,
+      stopTs: new Date().toISOString(),
+      durationMs: Date.now() - Date.parse(startTs),
+      source: 'extension-deterministic-route',
+    });
+    stream.markdown(rendered);
+    return;
+  }
+
   stream.progress('Maestro router 분류 중…');
   let routerResult;
   try {
@@ -138,6 +189,7 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
   }
 
   const userMessage = routerResult.modifiedParameters?.userMessage || request.prompt;
+  const modelUserMessage = stripRouterDisplayDirectives(userMessage);
   const badge = extractBadge(userMessage);
 
   if (badge) {
@@ -183,7 +235,7 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     const parsed = badge ? parseBadge(badge) : { intent: '', pipeline: [], classifier: '' };
     if (parsed.pipeline.length === 0) {
       stream.markdown('\n⚠️ multi-agent 모드인데 파이프라인을 파싱하지 못했습니다. passthrough로 폴백합니다.\n\n');
-      await runPassthrough({ model, userMessage, stream, token });
+      await runPassthrough({ model, userMessage: modelUserMessage, stream, token });
       return;
     }
     if (debug) {
@@ -195,7 +247,7 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
       pipelineId: parsed.intent || 'unknown',
       sessionId,
       userTask: request.prompt,
-      maestroContext: userMessage,
+      maestroContext: modelUserMessage,
       stream,
       cancellation: token,
       model,
@@ -212,7 +264,7 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     return;
   }
 
-  await runPassthrough({ model, userMessage, stream, token });
+  await runPassthrough({ model, userMessage: modelUserMessage, stream, token });
 };
 
 async function runPassthrough(args: {

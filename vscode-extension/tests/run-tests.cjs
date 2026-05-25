@@ -4,10 +4,11 @@ const os = require('os');
 const path = require('path');
 
 const { envPathFor, getEnvValue, setEnvValue, clearEnvValue } = require('../out/env-file.js');
-const { deriveSpawnCwd, extractBadge, routerScriptPath } = require('../out/router-bridge.js');
+const { deriveSpawnCwd, extractBadge, routerScriptPath, stripRouterDisplayDirectives } = require('../out/router-bridge.js');
 const { loadAgent } = require('../out/agents/loader.js');
 const { HarnessPaths } = require('../out/state/paths.js');
 const { checkCommand, checkFileWrite, loadGuards } = require('../out/tools/guards.js');
+const { isGitChangeQuery, renderGitChangeReport } = require('../out/local-git.js');
 
 function mkdirp(p) {
   fs.mkdirSync(p, { recursive: true });
@@ -107,6 +108,26 @@ test('extractBadge finds Maestro fenced badge', () => {
   assert.match(got, /Context7 Docs Agent/);
 });
 
+test('stripRouterDisplayDirectives removes duplicated UI badge instructions', () => {
+  const raw = [
+    '## [⚠️ 필수 — 응답 첫 줄 출력 의무]',
+    '아래 블록을 **응답의 첫 줄로** 반드시 출력한다.',
+    '```',
+    '🎯 **작업 유형**: query',
+    '📋 **파이프라인**: Context7 Docs Agent → Critic → Release',
+    '🔍 **분류 방식**: regex',
+    '```',
+    '이 블록 없이 내용을 출력하거나 에이전트를 호출하면 규칙 위반이다.',
+    '',
+    '## [원본 요청]',
+    '변경 들어온게 뭐지?'
+  ].join('\n');
+  const stripped = stripRouterDisplayDirectives(raw);
+  assert.doesNotMatch(stripped, /작업 유형/);
+  assert.doesNotMatch(stripped, /파이프라인/);
+  assert.match(stripped, /원본 요청/);
+});
+
 test('agent loader handles CRLF frontmatter and first-word lookup', () => {
   const planner = loadAgent(fixture.paths, 'Planner');
   assert.ok(planner);
@@ -128,6 +149,23 @@ test('guards load SSOT and classify command/file writes', () => {
   assert.strictEqual(checkFileWrite(fixture.paths, '.env').decision, 'deny');
   assert.strictEqual(checkFileWrite(fixture.paths, '.github/agents/planner.agent.md').decision, 'ask');
   assert.strictEqual(checkFileWrite(fixture.paths, path.join(fixture.root, '..', 'outside.txt')).decision, 'deny');
+});
+
+test('local git query detector and renderer are deterministic', () => {
+  assert.strictEqual(isGitChangeQuery('변경 들어온게 뭐지?'), true);
+  assert.strictEqual(isGitChangeQuery('git diff 보여줘'), true);
+  assert.strictEqual(isGitChangeQuery('안녕'), false);
+  const report = renderGitChangeReport({
+    cwd: fixture.root,
+    branch: 'main',
+    status: ' M file.txt',
+    unstagedStat: ' file.txt | 2 +-',
+    stagedStat: '',
+    recentCommits: 'abc123 test commit',
+  });
+  assert.match(report, /현재 git 기준 변경/);
+  assert.match(report, /M file\.txt/);
+  assert.match(report, /abc123/);
 });
 
 if (process.exitCode) {

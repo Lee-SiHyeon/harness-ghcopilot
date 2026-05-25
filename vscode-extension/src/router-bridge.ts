@@ -136,3 +136,16 @@ export function extractBadge(userMessage: string): string {
   }
   return '';
 }
+
+/** Remove router-injected "must print this badge" blocks before sending text to an LLM. */
+export function stripRouterDisplayDirectives(userMessage: string): string {
+  if (!userMessage) return '';
+  let text = userMessage;
+  text = text.replace(
+    /## \[⚠️ 필수 — 응답 첫 줄 출력 의무\][\s\S]*?이 블록 없이 내용을 출력하거나 에이전트를 호출하면 규칙 위반이다\.\s*/g,
+    '',
+  );
+  text = text.replace(/```\s*\n🎯 \*\*작업 유형\*\*:[\s\S]*?🔍 \*\*분류 방식\*\*:[\s\S]*?\n```\s*/g, '');
+  text = text.replace(/응답 첫 줄에 위 배지를 그대로 출력한 뒤[\s\S]*?(?:\n\n|$)/g, '');
+  return text.trim();
+}

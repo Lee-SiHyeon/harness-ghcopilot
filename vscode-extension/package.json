@@ -188,7 +188,7 @@
         },
         "maestroChat.executorMode": {
           "type": "string",
-          "default": "passthrough",
+          "default": "multi-agent",
           "enum": ["passthrough", "multi-agent"],
           "enumDescriptions": [
             "Phase 1 동작: 분류 → 배지 출력 → Maestro userMessage 전체를 단일 LLM 호출. 빠르지만 LLM이 멀티 에이전트 흐름을 스스로 모방해야 함.",
