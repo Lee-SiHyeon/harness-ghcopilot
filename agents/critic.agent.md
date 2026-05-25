@@ -9,7 +9,7 @@ argument-hint: '직전 파이프라인의 실행 내역, 파이프라인 선언,
 
 model: [Claude Opus 4.7 (copilot), GPT-5.5 (copilot), Gemini 3.5 Flash (copilot), Claude Sonnet 4.6 (copilot)]
 
-tools: [read]
+tools: [read, run]
 
 agents: []
 
@@ -59,7 +59,19 @@ Maestro는 위 조치를 **즉시** 수행한 뒤 Critic을 재호출한다.
 
 ## 체크 방법
 
-- **H1**: `c:\Users\dlxog\projects\.github\logs\subagent-flow.jsonl`에서 현재 sessionId 기준 `"event":"SubagentStop"` 이벤트를 직접 읽어 실행된 에이전트 목록을 확보하고, 📋 파이프라인 선언과 비교. sessionId는 Maestro가 전달하거나, 미전달 시 JSONL 파일 마지막 50줄의 가장 많이 등장하는 sessionId를 사용한다. Maestro 전달 목록과 jsonl 기록이 불일치하면 jsonl 기록을 우선 신뢰. **추가 검증**: SubagentStop 이벤트가 1개 이상 있지만 모든 항목의 `agentName`이 비어있으면 H1 WARN (agent_type 미지원 환경 가능성 — 경고로 처리, FAIL 아님). SubagentStop 자체가 0개이면 H1 FAIL (파이프라인 미실행). 단, Maestro가 전달한 실행 내역에 에이전트 목록이 있고 JSONL 파일에서 sessionId가 해당 세션과 다른 범위로 필터링된 경우에는 Maestro 전달 목록과 JSONL 전체 마지막 50줄을 함께 참조하여 판단한다.
+- **H1**: 아래 명령을 실행하여 SubagentStop 이벤트 목록을 확보한다:
+  ```
+  node c:\Users\dlxog\projects\.github\scripts\critic-h1-verify.js [sessionId]
+  ```
+  sessionId는 Maestro가 전달한 값을 사용한다. 미전달 시 빈 문자열로 실행하면 전체 이벤트를 반환한다.
+  
+  출력된 JSON의 `events` 배열에서 각 `agentName`을 추출하여 📋 선언 파이프라인과 비교한다.
+  
+  **판정 기준**:
+  - `count > 0` 이고 선언된 에이전트가 모두 `events`에 있으면 → H1 ✅ PASS
+  - `count > 0` 이고 일부 에이전트가 `(null)`이면 → H1 ⚠️ WARN (agent_type 미지원 환경)
+  - `count === 0` 이고 Maestro 전달 실행 목록이 있으면 → H1 ⚠️ WARN (Maestro 직접 실행 패턴)
+  - `count === 0` 이고 Maestro 전달 실행 목록도 없으면 → H1 ❌ FAIL
 - **H2**: `c:\Users\dlxog\projects\.github\logs\retrospective-history.md` 파일의 가장 최근 `---` 블록에서 `**자기비평**:` 값이 `(Maestro 기입 필요)`가 아닌지 확인
 - **H3**: Maestro가 전달한 intent 확인 → `implement` 또는 `fix`이면 Tester가 📋 선언에 포함됐는지 **AND** 실제 실행 목록에 포함됐는지 둘 다 검증. 하나라도 없으면 FAIL. 그 외 intent는 자동 PASS.
 - **H4**: 전달받은 완료된 작업 목록에 `Reviewer` ✅가 있는지 확인
