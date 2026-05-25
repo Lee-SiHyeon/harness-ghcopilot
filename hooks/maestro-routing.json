@@ -14,6 +14,12 @@
         "command": "node .github/hooks/scripts/todo-inject-subagent.js",
         "windows": "node .github/hooks/scripts/todo-inject-subagent.js",
         "timeout": 5
+      },
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/hook-stdin-dump.js",
+        "windows": "node .github/hooks/scripts/hook-stdin-dump.js",
+        "timeout": 2
       }
     ],
     "SubagentStop": [
@@ -28,6 +34,12 @@
         "command": "node .github/hooks/scripts/retrospective-trigger.js",
         "windows": "node .github/hooks/scripts/retrospective-trigger.js",
         "timeout": 3
+      },
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/hook-stdin-dump.js",
+        "windows": "node .github/hooks/scripts/hook-stdin-dump.js",
+        "timeout": 2
       }
     ],
     "PostToolUse": [

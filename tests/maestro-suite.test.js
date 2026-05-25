@@ -2198,4 +2198,41 @@ tc('tc-187', 'maestro-router / MaestroSessionStart', 'maestro-router.js MaestroS
   if (!src.includes('last-maestro-session.json')) throw new Error('dedup file ref missing');
 });
 
+tc('tc-188', 'maestro-routing / SubagentStart', 'maestro-routing.json — hook-stdin-dump SubagentStart 등록', () => {
+  const cfg = JSON.parse(fs.readFileSync(path.join(HOOKS_DIR, 'maestro-routing.json'), 'utf8'));
+  const starts = cfg.hooks.SubagentStart || [];
+  const hasDump = starts.some(h => (h.command || '').includes('hook-stdin-dump'));
+  if (!hasDump) throw new Error('SubagentStart에 hook-stdin-dump.js 등록 안 됨');
+});
+
+tc('tc-189', 'maestro-routing / SubagentStop', 'maestro-routing.json — hook-stdin-dump SubagentStop 등록', () => {
+  const cfg = JSON.parse(fs.readFileSync(path.join(HOOKS_DIR, 'maestro-routing.json'), 'utf8'));
+  const stops = cfg.hooks.SubagentStop || [];
+  const hasDump = stops.some(h => (h.command || '').includes('hook-stdin-dump'));
+  if (!hasDump) throw new Error('SubagentStop에 hook-stdin-dump.js 등록 안 됨');
+});
+
+tc('tc-190', 'test-gate / syntax+refs', 'test-gate.js — node --check + test-evidence + hookSpecificOutput', () => {
+  syntaxCheck('test-gate.js');
+  const src = readSrc('test-gate.js');
+  if (!src.includes('test-evidence')) throw new Error('test-gate.js에 test-evidence 참조 없음');
+  if (!src.includes('hookSpecificOutput')) throw new Error('test-gate.js에 hookSpecificOutput 없음');
+  if (!src.includes('구현완료') && !src.includes('TEST-GATE')) throw new Error('test-gate.js에 게이트 메시지 없음');
+});
+
+tc('tc-191', 'precompact-save / syntax+refs', 'precompact-save.js — node --check + extraInstructions 반환', () => {
+  syntaxCheck('precompact-save.js');
+  const src = readSrc('precompact-save.js');
+  if (!src.includes('extraInstructions')) throw new Error('precompact-save.js에 extraInstructions 없음');
+  if (!src.includes('current-todos')) throw new Error('precompact-save.js에 current-todos 참조 없음');
+});
+
+tc('tc-192', 'classifier / regex-fallback', 'classifier.js — LLM 실패 시 regex fallback 경로 존재', () => {
+  const src = fs.readFileSync(path.join(HOOKS_DIR, 'scripts', 'router', 'classifier.js'), 'utf8');
+  if (!src.includes('classifyWithGitHubModels')) throw new Error('LLM 분류 함수 없음');
+  if (!src.includes('classifyWithRegex')) throw new Error('regex fallback 함수 없음');
+  const router = readSrc('maestro-router.js');
+  if (!router.includes('regex_fallback') && !router.includes('classifyWithRegex')) throw new Error('regex fallback 경로 없음');
+});
+
 run();
