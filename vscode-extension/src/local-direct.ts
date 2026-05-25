@@ -31,7 +31,7 @@ export function renderLocalDirectAnswer(prompt: string, intent: string, pipeline
 }
 
 function isCasualStatus(text: string): boolean {
-  return text.length <= 24 && /^(야\s*)?(뭐해|뭐하냐|뭐함|안녕|ㅎㅇ|하이|hi|hello|hey)\??!?$/i.test(text);
+  return text.length <= 24 && /^(야|야\s*(뭐해|뭐하냐|뭐함)|뭐해|뭐하냐|뭐함|안녕|ㅎㅇ|하이|hi|hello|hey)\s*\??!?$/i.test(text);
 }
 
 function isHelpRequest(text: string): boolean {

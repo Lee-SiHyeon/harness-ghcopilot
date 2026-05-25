@@ -258,7 +258,8 @@ const handler: vscode.ChatRequestHandler = async (request, context, stream, toke
     let analysis = classifyPrompt(request.prompt, paths);
     // actionItems override: trivial intent but unresolved items exist → bump to inspect
     const pendingItems = loadActionItemsCount(paths);
-    if (pendingItems > 0 && (analysis.intent === 'question' || analysis.intent === 'query')) {
+    const hasLocalDirectAnswer = Boolean(renderLocalDirectAnswer(request.prompt, analysis.intent, analysis.pipeline));
+    if (pendingItems > 0 && !hasLocalDirectAnswer && (analysis.intent === 'question' || analysis.intent === 'query')) {
       analysis = { ...analysis, intent: 'inspect', pipeline: normalizePipeline('inspect', ['Inspector']), reason: `[extension-router] actionItems override (${pendingItems}건 미해결)` };
     }
     badge = buildBadge(analysis);
@@ -506,9 +507,12 @@ async function runSingleSession(args: {
   const OUTER_TOOL_NAMES = ['maestro_read_file', 'maestro_list_files', 'maestro_search_files'];
   const tools = vscode.lm.tools.filter(t => OUTER_TOOL_NAMES.includes(t.name));
   let toolCallCount = 0;
+  let output = '';
+  let endedAfterToolCalls = false;
   try {
     const maxRounds = tools.length > 0 ? 10 : 1;
     for (let round = 0; round < maxRounds; round++) {
+      endedAfterToolCalls = false;
       const response = await args.model.sendRequest(messages, {
         tools,
         toolMode: tools.length > 0 ? vscode.LanguageModelChatToolMode.Auto : undefined,
@@ -520,6 +524,7 @@ async function runSingleSession(args: {
         if (args.token.isCancellationRequested) return;
         if (part instanceof vscode.LanguageModelTextPart) {
           assistantParts.push(part);
+          output += part.value;
           args.stream.markdown(part.value);
         } else if (part instanceof vscode.LanguageModelToolCallPart) {
           assistantParts.push(part);
@@ -530,6 +535,7 @@ async function runSingleSession(args: {
         }
       }
       if (toolCalls.length === 0) break;
+      endedAfterToolCalls = true;
       messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
       for (const call of toolCalls) {
         const result = await vscode.lm.invokeTool(call.name, {
@@ -541,6 +547,25 @@ async function runSingleSession(args: {
         ]));
         logger?.info('single-session tool call completed', { name: call.name, callId: call.callId });
       }
+    }
+    if (toolCallCount > 0 && (endedAfterToolCalls || output.trim().length === 0)) {
+      messages.push(vscode.LanguageModelChatMessage.User(
+        '도구 호출은 끝났다. 추가 도구 호출 없이, 지금까지의 도구 결과만 바탕으로 사용자에게 줄 최종 답변을 작성하라.',
+      ));
+      const response = await args.model.sendRequest(messages, {
+        tools: [],
+        justification: 'Maestro direct final answer synthesis after tool calls.',
+      }, args.token);
+      const parts: vscode.LanguageModelTextPart[] = [];
+      for await (const part of response.stream) {
+        if (args.token.isCancellationRequested) return;
+        if (part instanceof vscode.LanguageModelTextPart) {
+          parts.push(part);
+          output += part.value;
+          args.stream.markdown(part.value);
+        }
+      }
+      messages.push(vscode.LanguageModelChatMessage.Assistant(parts));
     }
     logger?.info('single-session complete', { toolCallCount, messageCount: messages.length });
   } catch (e) {

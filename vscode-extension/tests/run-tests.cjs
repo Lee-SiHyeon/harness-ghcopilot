@@ -469,6 +469,9 @@ test('model selection avoids premium Opus as the default first choice', () => {
 
 test('local direct answers avoid LLM for short casual prompts', () => {
   assert.match(renderLocalDirectAnswer('야 뭐하냐', 'query', []), /로컬에서 바로 답/);
+  assert.match(renderLocalDirectAnswer(' 야 뭐하냐', 'query', []), /로컬에서 바로 답/);
+  assert.match(renderLocalDirectAnswer('야 뭐함', 'query', []), /로컬에서 바로 답/);
+  assert.match(renderLocalDirectAnswer('야', 'query', []), /로컬에서 바로 답/);
   assert.match(renderLocalDirectAnswer('사용법 알려줘', 'question', []), /single-session/);
   assert.strictEqual(renderLocalDirectAnswer('이 파일 고쳐줘', 'fix', ['Implementer']), undefined);
 });

@@ -225,8 +225,10 @@ async function runModelLoop(
   const outputCap = (ctx.maxLoggedOutputChars ?? 4000) * 2;
   let output = '';
   let toolCallCount = 0;
+  let endedAfterToolCalls = false;
 
   for (let round = 0; round < maxRounds; round++) {
+    endedAfterToolCalls = false;
     const response = await ctx.model.sendRequest(messages, {
       tools,
       toolMode: tools.length > 0 ? vscode.LanguageModelChatToolMode.Auto : undefined,
@@ -253,6 +255,7 @@ async function runModelLoop(
 
     messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
     if (toolCalls.length === 0) break;
+    endedAfterToolCalls = true;
 
     for (const call of toolCalls) {
       const result = await vscode.lm.invokeTool(call.name, {
@@ -266,7 +269,45 @@ async function runModelLoop(
     }
   }
 
+  if (toolCallCount > 0 && (endedAfterToolCalls || output.trim().length === 0)) {
+    const finalText = await runFinalAnswerPass(ctx, messages);
+    if (finalText) {
+      if (output.length < outputCap) output += finalText;
+      if (ctx.streamAgentOutputs !== false) ctx.stream.markdown(finalText);
+    }
+  }
+
   return { output, toolCallCount };
+}
+
+async function runFinalAnswerPass(
+  ctx: SingleSessionPipelineContext,
+  messages: vscode.LanguageModelChatMessage[],
+): Promise<string> {
+  messages.push(vscode.LanguageModelChatMessage.User(
+    [
+      '## [Final answer required]',
+      '도구 호출은 끝났다. 이제 추가 도구 호출 없이, 지금까지의 도구 결과와 이전 메시지만 바탕으로 사용자에게 줄 최종 답변을 작성하라.',
+      '반드시 빈 출력으로 끝내지 말고, 확인한 사실/문제점/다음 조치를 간결하게 정리하라.',
+    ].join('\n'),
+  ));
+
+  const response = await ctx.model.sendRequest(messages, {
+    tools: [],
+    justification: 'Maestro final answer synthesis after tool calls.',
+  }, ctx.cancellation);
+
+  const parts: vscode.LanguageModelTextPart[] = [];
+  let text = '';
+  for await (const part of response.stream) {
+    if (ctx.cancellation.isCancellationRequested) break;
+    if (part instanceof vscode.LanguageModelTextPart) {
+      parts.push(part);
+      text += part.value;
+    }
+  }
+  messages.push(vscode.LanguageModelChatMessage.Assistant(parts));
+  return text;
 }
 
 function appendStop(
