@@ -1,4 +1,5 @@
 logs/
+.github/logs/
 logs/retrospective-history.md
 logs/retrospective-draft.json
 *.log

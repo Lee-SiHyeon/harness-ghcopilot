@@ -85,6 +85,7 @@ npm install
 | Extension activation 에러 | Extension Host → Developer Tools Console |
 | Router stdout/stderr | `maestroChat.debug` 설정 켜면 채팅 응답에 표시. 또는 router-bridge에 임시 `console.log()` 추가 |
 | 발견된 harness 경로 | `maestroChat.debug = true` 켜면 응답 첫 줄에 표시 |
+| router/model/pipeline 이벤트 | Output 패널 → `Maestro Chat` 채널 또는 명령 `Maestro: Show Output Log` |
 
 ## 설정 (settings.json)
 
@@ -100,7 +101,15 @@ npm install
   "maestroChat.debug": false,
 
   // Phase 1 동작 (단일 LLM 호출, 빠름) vs Phase 2 동작 (파이프라인 step마다 호출, 진짜 멀티 에이전트)
-  "maestroChat.executorMode": "passthrough"   // 또는 "multi-agent"
+  "maestroChat.executorMode": "passthrough",   // 또는 "multi-agent"
+
+  // 선택 모델 family. 비워두면 첫 번째 Copilot 모델 사용.
+  "maestroChat.modelFamily": "",
+
+  // multi-agent 출력/비용 제어.
+  "maestroChat.streamAgentOutputs": true,
+  "maestroChat.maxPriorStepChars": 4000,
+  "maestroChat.maxLoggedStepChars": 4000
 }
 ```
 
@@ -176,6 +185,7 @@ for await (fragment) stream.markdown(fragment)
 | Maestro: Open Harness Folder | 탐색기에서 harness 노출 |
 | Maestro: Open Logs Folder | `logs/` 노출 |
 | Maestro: Refresh Sidebar | 수동 새로고침 |
+| Maestro: Show Output Log | `Output: Maestro Chat` 채널 열기 |
 
 ### vscode.lm 도구 (Phase 3 스캐폴딩)
 | 도구 | 가드 |
@@ -211,6 +221,27 @@ for await (fragment) stream.markdown(fragment)
 - 매 turn 새 프로세스로 router 호출 (~수십 ms 오버헤드)
 - vscode.lm으로 받는 모델은 Copilot 설정 따름
 - 사이드바 watcher는 Node fs.watch 기반 (workspace 외부 harness도 감시 가능하지만 일부 환경에서 이벤트 누락 가능 → 수동 refresh로 보완)
+
+## 테스트 / CI
+
+로컬:
+
+```powershell
+cd <harness>\vscode-extension
+npm test
+```
+
+검증 범위:
+- `.env` 편집 유틸이 기존 라인/주석을 보존하는지
+- standalone `.github` clone 경로 계산
+- Maestro 배지 추출
+- `.agent.md` 로더의 CRLF/frontmatter/Context7 fallback 매칭
+- `meta/guards.json` 기반 shell/file guard 판정
+
+CI:
+- `.github/workflows/vscode-extension-ci.yml`
+- Windows + Node 22
+- `npm ci` → `npm test`
 
 ## 다음 단계
 

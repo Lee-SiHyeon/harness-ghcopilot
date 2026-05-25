@@ -74,6 +74,11 @@
         "command": "maestroChat.refresh",
         "title": "Maestro: Refresh Sidebar",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "maestroChat.showOutput",
+        "title": "Maestro: Show Output Log",
+        "icon": "$(output)"
       }
     ],
     "menus": {
@@ -85,6 +90,11 @@
         },
         {
           "command": "maestroChat.setGithubPat",
+          "when": "view == maestroChat.sidebar",
+          "group": "navigation"
+        },
+        {
+          "command": "maestroChat.showOutput",
           "when": "view == maestroChat.sidebar",
           "group": "navigation"
         }
@@ -185,12 +195,37 @@
             "Phase 2 동작: 파이프라인의 각 step마다 별개 vscode.lm 호출 (시스템=해당 agent의 .agent.md 본문). 진짜 멀티 에이전트 실행. 토큰 더 소비, 시간 더 걸림."
           ],
           "description": "응답 생성 방식: passthrough(단일 호출) 또는 multi-agent(파이프라인 step별 호출)"
+        },
+        "maestroChat.modelFamily": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Preferred Copilot language model family for `vscode.lm.selectChatModels`. Empty means the first available Copilot model. Examples depend on installed Copilot support and may include `gpt-4o`, `gpt-4.1`, `claude-sonnet`."
+        },
+        "maestroChat.streamAgentOutputs": {
+          "type": "boolean",
+          "default": true,
+          "description": "multi-agent 모드에서 각 에이전트 출력을 채팅에 실시간 표시할지 여부. false면 요약만 표시하고 logs/pipeline.jsonl에는 기록."
+        },
+        "maestroChat.maxPriorStepChars": {
+          "type": "number",
+          "default": 4000,
+          "minimum": 500,
+          "maximum": 20000,
+          "description": "multi-agent 모드에서 다음 에이전트에게 전달할 이전 step 출력 최대 문자 수."
+        },
+        "maestroChat.maxLoggedStepChars": {
+          "type": "number",
+          "default": 4000,
+          "minimum": 500,
+          "maximum": 20000,
+          "description": "logs/pipeline.jsonl에 저장할 각 에이전트 출력 최대 문자 수."
         }
       }
     }
   },
   "scripts": {
     "compile": "tsc -p ./",
+    "test": "npm run compile && node tests/run-tests.cjs",
     "watch": "tsc -watch -p ./",
     "package": "vsce package --no-dependencies"
   },

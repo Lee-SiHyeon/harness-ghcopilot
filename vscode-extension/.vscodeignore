@@ -1,6 +1,7 @@
 .vscode/**
 .vscode-test/**
 src/**
+tests/**
 .gitignore
 .npmrc
 tsconfig.json

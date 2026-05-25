@@ -11,11 +11,13 @@ import { MaestroStatusBar } from './status-bar';
 import { registerCommands } from './commands';
 import { registerTools } from './tools/registry';
 import { HarnessWatcher } from './watcher';
+import { createLogger, MaestroLogger } from './logging';
 
 const PARTICIPANT_ID = 'maestro';
 const CONFIG_SECTION = 'maestroChat';
 
 type ExecutorMode = 'passthrough' | 'multi-agent';
+let logger: MaestroLogger | null = null;
 
 interface HarnessDiscovery {
   harnessPath: string;
@@ -83,6 +85,10 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
   const debug = cfg.get<boolean>('debug', false);
   const timeoutMs = cfg.get<number>('routerTimeoutMs', 15_000);
   const executorMode = (cfg.get<string>('executorMode', 'passthrough') as ExecutorMode);
+  const modelFamily = (cfg.get<string>('modelFamily') || '').trim();
+  const streamAgentOutputs = cfg.get<boolean>('streamAgentOutputs', true);
+  const maxPriorOutputChars = cfg.get<number>('maxPriorStepChars', 4000);
+  const maxLoggedOutputChars = cfg.get<number>('maxLoggedStepChars', 4000);
 
   const found = findHarness();
   if ('error' in found) {
@@ -91,6 +97,13 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
   }
   const paths = new HarnessPaths(found.harnessPath);
   const sessionId = newCorrelationId();
+  logger?.info('chat request', {
+    sessionId,
+    harnessPath: found.harnessPath,
+    source: found.source,
+    executorMode,
+    promptChars: request.prompt.length,
+  });
 
   if (debug) {
     stream.markdown(`\n> [debug] harness: \`${found.harnessPath}\` (source: ${found.source}) | mode: \`${executorMode}\`\n\n`);
@@ -110,8 +123,15 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
       harnessPath: found.harnessPath,
       timeoutMs,
     });
+    logger?.info('router result', {
+      sessionId,
+      hookSpecificOutput: routerResult.hookSpecificOutput,
+      decision: routerResult.decision,
+      hasUserMessage: Boolean(routerResult.modifiedParameters?.userMessage),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    logger?.error('router failed', e);
     stream.markdown(`⚠️ Maestro router 호출 실패: \`${msg}\`\n\n`);
     if (debug) stream.markdown(`> harness: \`${found.harnessPath}\``);
     return;
@@ -134,10 +154,20 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
 
   let model: vscode.LanguageModelChat | undefined;
   try {
-    const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+    const selector = modelFamily
+      ? { vendor: 'copilot', family: modelFamily }
+      : { vendor: 'copilot' };
+    const models = await vscode.lm.selectChatModels(selector);
     model = models[0];
+    logger?.info('model selected', {
+      sessionId,
+      requestedFamily: modelFamily || '(first available)',
+      model: model ? { name: model.name, vendor: model.vendor, family: model.family } : null,
+      candidates: models.length,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    logger?.error('model selection failed', e);
     stream.markdown(`\n⚠️ Language Model 선택 실패: \`${msg}\``);
     return;
   }
@@ -170,6 +200,10 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
       cancellation: token,
       model,
       debug,
+      streamAgentOutputs,
+      maxPriorOutputChars,
+      maxLoggedOutputChars,
+      logger: logger ?? undefined,
     });
     if (actionCount > 0) {
       clearActionItems(paths);
@@ -195,6 +229,7 @@ async function runPassthrough(args: {
       args.stream.markdown(fragment);
     }
   } catch (e) {
+    logger?.error('passthrough failed', e);
     if (e instanceof vscode.LanguageModelError) {
       args.stream.markdown(`\n\n⚠️ LLM 오류 (${e.code}): ${e.message}`);
     } else if (e instanceof Error) {
@@ -206,6 +241,11 @@ async function runPassthrough(args: {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  const output = vscode.window.createOutputChannel('Maestro Chat');
+  logger = createLogger(output);
+  context.subscriptions.push(output);
+  logger.info('activate');
+
   // 1) ChatParticipant
   const participant = vscode.chat.createChatParticipant(PARTICIPANT_ID, handler);
   participant.iconPath = new vscode.ThemeIcon('symbol-event');
@@ -231,6 +271,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // 5) 명령들
   registerCommands(context, resolveHarnessPath, refresh);
+  context.subscriptions.push(vscode.commands.registerCommand('maestroChat.showOutput', () => {
+    logger?.show();
+  }));
 
   // 6) vscode.lm 도구 등록 (Phase 3 스캐폴딩)
   registerTools(context, resolveHarnessPath);
@@ -244,11 +287,13 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration(CONFIG_SECTION)) {
+        logger?.info('configuration changed');
         watcher.watch(resolveHarnessPath());
         refresh();
       }
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      logger?.info('workspace folders changed');
       watcher.watch(resolveHarnessPath());
       refresh();
     }),

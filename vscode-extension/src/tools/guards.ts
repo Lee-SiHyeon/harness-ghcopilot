@@ -83,7 +83,9 @@ export interface FileCheckResult {
 export function checkFileWrite(paths: HarnessPaths, targetPath: string): FileCheckResult {
   const guards = loadGuards(paths);
   const harnessRoot = path.dirname(path.resolve(paths.harnessPath));
-  const absolute = path.resolve(targetPath);
+  const absolute = path.isAbsolute(targetPath)
+    ? path.resolve(targetPath)
+    : path.resolve(harnessRoot, targetPath);
   const rel = path.relative(harnessRoot, absolute).replace(/\\/g, '/');
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
     return { decision: 'deny', reason: 'workspace 외부 경로' };

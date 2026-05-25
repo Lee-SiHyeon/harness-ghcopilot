@@ -15,6 +15,14 @@ export interface ExecutorContext {
   cancellation: vscode.CancellationToken;
   model: vscode.LanguageModelChat;
   debug?: boolean;
+  streamAgentOutputs?: boolean;
+  maxPriorOutputChars?: number;
+  maxLoggedOutputChars?: number;
+  logger?: {
+    info(message: string, data?: unknown): void;
+    warn(message: string, data?: unknown): void;
+    error(message: string, data?: unknown): void;
+  };
 }
 
 export interface StepResult {
@@ -62,6 +70,7 @@ export async function executePipeline(
       correlationId,
       source: 'extension-executor',
     });
+    ctx.logger?.info('agent start', { agentName, stepNumber, total: steps.length, correlationId });
 
     ctx.stream.markdown(
       `\n\n---\n\n### ⚙️ [${stepNumber}/${steps.length}] ${agentName} 실행 중…\n\n`,
@@ -86,6 +95,7 @@ export async function executePipeline(
         skipped: true,
       });
       results.push({ agentName, output: '', correlationId, durationMs, skipped: true });
+      ctx.logger?.warn('agent skipped: definition not found', { agentName, durationMs });
       continue;
     }
 
@@ -106,11 +116,17 @@ export async function executePipeline(
       for await (const fragment of response.text) {
         if (ctx.cancellation.isCancellationRequested) break;
         output += fragment;
-        ctx.stream.markdown(fragment);
+        if (ctx.streamAgentOutputs !== false) {
+          ctx.stream.markdown(fragment);
+        }
+      }
+      if (ctx.streamAgentOutputs === false) {
+        ctx.stream.markdown(`_(출력 ${output.length} chars 생성됨 — 로그에 기록)_\n`);
       }
     } catch (e) {
       errorMessage = e instanceof Error ? e.message : String(e);
       ctx.stream.markdown(`\n\n⚠️ ${agentName} 실행 실패: ${errorMessage}\n`);
+      ctx.logger?.error('agent failed', { agentName, errorMessage });
     }
 
     const durationMs = Date.now() - t0;
@@ -128,11 +144,18 @@ export async function executePipeline(
     appendPipelineStep(ctx.paths, {
       pipeline_id: ctx.pipelineId,
       step: agentName,
-      output: output.slice(0, 4000),
+      output: output.slice(0, ctx.maxLoggedOutputChars ?? 4000),
       extra: { durationMs, correlationId, ...(errorMessage ? { error: errorMessage } : {}) },
     });
 
     results.push({ agentName, output, correlationId, durationMs, errorMessage });
+    ctx.logger?.info('agent stop', {
+      agentName,
+      durationMs,
+      chars: output.length,
+      correlationId,
+      error: errorMessage,
+    });
 
     // Maestro 정책: Reviewer 가 critical 발견 또는 Tester FAIL은 Phase 4에서
     // 재시도 루프로 처리. Phase 2에서는 발견만 표시.
@@ -166,8 +189,9 @@ function buildUserMessage(
         parts.push(`### ${prior.agentName}\n(스킵됨)`);
         continue;
       }
-      const snippet = prior.output.length > 4000
-        ? prior.output.slice(0, 4000) + '\n...(생략)'
+      const maxChars = ctx.maxPriorOutputChars ?? 4000;
+      const snippet = prior.output.length > maxChars
+        ? prior.output.slice(0, maxChars) + '\n...(생략)'
         : prior.output;
       parts.push(`### ${prior.agentName}\n${snippet || '(빈 출력)'}`);
     }
