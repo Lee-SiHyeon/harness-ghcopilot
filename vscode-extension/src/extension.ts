@@ -20,6 +20,7 @@ import { buildBadge, buildInternalUserMessage, classifyPrompt } from './router/i
 import { normalizePipeline, requiresAuditAndRelease } from './pipeline/config';
 import { choosePreferredModel } from './model-selection';
 import { renderLocalDirectAnswer } from './local-direct';
+import { modelInfo, onDidChangeRuntimeSnapshot, updateRuntimeSnapshot } from './runtime-state';
 
 const PARTICIPANT_ID = 'maestro';
 const CONFIG_SECTION = 'maestroChat';
@@ -148,6 +149,14 @@ const handler: vscode.ChatRequestHandler = async (request, context, stream, toke
     executorMode,
     promptChars: request.prompt.length,
   });
+  updateRuntimeSnapshot({
+    sessionId,
+    executorMode,
+    promptChars: request.prompt.length,
+    chatUiModel: modelInfo(request.model),
+    selectedModel: undefined,
+    selectedModelSource: undefined,
+  });
   if (found.warning) logger?.warn('harness discovery warning', { warning: found.warning, harnessPath: found.harnessPath, workspaceRoot: found.workspaceRoot });
 
   if (debug) {
@@ -267,6 +276,12 @@ const handler: vscode.ChatRequestHandler = async (request, context, stream, toke
       pendingActionItems: pendingItems,
     });
   }
+  updateRuntimeSnapshot({
+    sessionId,
+    executorMode,
+    intent: parsed.intent,
+    pipeline: parsed.pipeline,
+  });
 
   // 채팅 히스토리 주입 (최근 5턴, 싱글세션/패스스루 모두 활용)
   const historyTurns = ((context as any).history ?? []).slice(-10);
@@ -322,6 +337,11 @@ const handler: vscode.ChatRequestHandler = async (request, context, stream, toke
   const localDirectAnswer = renderLocalDirectAnswer(request.prompt, parsed.intent, parsed.pipeline);
   if (localDirectAnswer) {
     logger?.info('local direct answer', { sessionId, intent: parsed.intent, promptChars: request.prompt.length });
+    updateRuntimeSnapshot({
+      sessionId,
+      selectedModel: undefined,
+      selectedModelSource: 'local-direct-no-llm',
+    });
     stream.markdown(localDirectAnswer);
     return;
   }
@@ -342,6 +362,11 @@ const handler: vscode.ChatRequestHandler = async (request, context, stream, toke
       model: model ? { name: model.name, vendor: model.vendor, family: model.family } : null,
       candidates: candidateCount,
       selectionStrategy: modelFamily ? 'configured-family-first' : 'chat-request-model',
+    });
+    updateRuntimeSnapshot({
+      sessionId,
+      selectedModel: modelInfo(model),
+      selectedModelSource: modelFamily ? 'maestroChat.modelFamily' : 'chat-ui',
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -589,6 +614,7 @@ export function activate(context: vscode.ExtensionContext): void {
     mcpProvider.refresh();
     statusBar.refresh(resolveHarnessPath);
   };
+  context.subscriptions.push(onDidChangeRuntimeSnapshot(() => refresh()));
 
   // 5) 명령들
   registerCommands(context, resolveHarnessPath, refresh);
@@ -598,6 +624,34 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // 6) vscode.lm 도구 등록 (Phase 3 스캐폴딩)
   registerTools(context, resolveHarnessPaths);
+
+  const refreshGithubAuth = async () => {
+    try {
+      const accounts = await vscode.authentication.getAccounts('github');
+      const session = await vscode.authentication.getSession('github', [], { silent: true });
+      updateRuntimeSnapshot({
+        githubAuth: {
+          providerId: 'github',
+          accountLabel: session?.account.label ?? accounts[0]?.label,
+          accountId: session?.account.id ?? accounts[0]?.id,
+          accountCount: accounts.length,
+          hasSession: Boolean(session),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    } catch (e) {
+      updateRuntimeSnapshot({
+        githubAuth: {
+          providerId: 'github',
+          hasSession: false,
+          error: e instanceof Error ? e.message : String(e),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
+    refresh();
+  };
+  void refreshGithubAuth();
 
   // 7) 로그 파일 변경 → 자동 refresh
   const watcher = new HarnessWatcher(refresh);
@@ -617,6 +671,9 @@ export function activate(context: vscode.ExtensionContext): void {
       logger?.info('workspace folders changed');
       watcher.watch(resolveHarnessPath());
       refresh();
+    }),
+    vscode.authentication.onDidChangeSessions(e => {
+      if (e.provider.id === 'github') void refreshGithubAuth();
     }),
   );
 }

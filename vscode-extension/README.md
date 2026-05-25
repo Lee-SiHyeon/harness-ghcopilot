@@ -179,16 +179,18 @@ executeSingleSessionPipeline()   // executorMode=single-session 기본값
 
 ### 사이드 패널 (Activity Bar → 🎼 Maestro)
 - **GITHUB_PAT 상태**: 설정 여부 표시. 클릭하면 SetPAT 명령 실행
+- **런타임 연결 상태**: Chat UI 선택 모델, Maestro 실제 사용 모델, executor mode, intent/pipeline, VS Code GitHub 인증 세션 표시
 - **마이그레이션 상태**: Router가 extension TS인지 legacy hook인지, MCP가 optional인지 표시
 - **MCP github-state**: 등록 여부, 현재 harness target, 도구 목록, 공유 상태 파일 표시
 - **현재 세션**: sessionId, 시작 시각, 진행 중인 에이전트(스피너), 최근 완료된 에이전트(소요시간/상태)
+- **Subagent 호출 흐름**: 최근 세션의 Start/Stop 이벤트, source, duration, 에러 tooltip 표시
 - **Test Gate**: requiredSince, 마지막 PASS/FAIL evidence, 테스트 실행 버튼
 - **Todo 상태**: `current-todos.json` 진행률
 - **최근 Tool Calls**: read/write/run_terminal 최근 10건
 - **미해결 개선 항목**: `retrospective-draft.json`의 actionItems
 - **최근 회고**: `retro.jsonl`의 마지막 5건 (제목/날짜/타입, hover 시 자기비평)
 
-> 자동 새로고침: `subagent-flow.jsonl`, `pipeline.jsonl`, `test-gate-state.json`, `test-evidence.json`, `current-todos.json`, `precompact-state.json`, `retrospective-draft.json`, `retro.jsonl` 변경 시 debounce 500ms 후 refresh. 수동: 사이드바 우측 상단 🔄.
+> 자동 새로고침: 런타임 상태 변경, GitHub auth session 변경, `subagent-flow.jsonl`, `pipeline.jsonl`, `test-gate-state.json`, `test-evidence.json`, `current-todos.json`, `precompact-state.json`, `retrospective-draft.json`, `retro.jsonl` 변경 시 refresh. 수동: 사이드바 우측 상단 🔄.
 
 ### MCP 상태 뷰
 Activity Bar의 Maestro 컨테이너에는 별도 **MCP 상태** 뷰가 있다.

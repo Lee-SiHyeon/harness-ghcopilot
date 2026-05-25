@@ -5,6 +5,7 @@ import { loadActionItems, ActionItem } from './state/action-items';
 import { getGateState, getTestEvidence, isEvidenceValid } from './state/test-gate';
 import { envPathFor, getEnvValue } from './env-file';
 import { inspectMcpStatus } from './mcp-status';
+import { getRuntimeSnapshot, RuntimeModelInfo } from './runtime-state';
 
 const KNOWN_AGENTS = new Set([
   'Planner', 'Implementer', 'Tester', 'Reviewer', 'Critic',
@@ -21,6 +22,7 @@ interface FlowEvent {
   stopTs?: string;
   durationMs?: number | null;
   correlationId?: string;
+  source?: string;
   skipped?: boolean;
   error?: string;
 }
@@ -119,15 +121,98 @@ export class MaestroTreeProvider implements vscode.TreeDataProvider<MaestroTreeI
     const paths = new HarnessPaths(harnessPath);
     return [
       this.buildPatNode(harnessPath),
+      this.buildRuntimeNode(),
       this.buildMigrationNode(),
       this.buildMcpNode(harnessPath),
       this.buildSessionNode(paths),
+      this.buildSubagentFlowNode(paths),
       this.buildTestGateNode(paths),
       this.buildTodosNode(paths),
       this.buildToolCallsNode(paths),
       this.buildActionItemsNode(paths),
       this.buildRetroNode(paths),
     ];
+  }
+
+  private buildRuntimeNode(): MaestroTreeItem {
+    const runtime = getRuntimeSnapshot();
+    const children: MaestroTreeItem[] = [];
+    children.push(new MaestroTreeItem(
+      runtime.chatUiModel ? `Chat UI: ${formatModel(runtime.chatUiModel)}` : 'Chat UI 모델: 아직 요청 없음',
+      'runtime-model-chat',
+      vscode.TreeItemCollapsibleState.None,
+      undefined,
+      {
+        iconId: runtime.chatUiModel ? 'symbol-method' : 'circle-outline',
+        tooltip: runtime.chatUiModel ? JSON.stringify(runtime.chatUiModel, null, 2) : 'ChatRequest.model에서 읽은 현재 UI 선택 모델입니다.',
+      },
+    ));
+    children.push(new MaestroTreeItem(
+      runtime.selectedModel
+        ? `Maestro 사용: ${formatModel(runtime.selectedModel)}`
+        : runtime.selectedModelSource === 'local-direct-no-llm'
+          ? 'Maestro 사용: 로컬 응답 (LLM 미호출)'
+          : 'Maestro 사용: 아직 LLM 미선택',
+      'runtime-model-selected',
+      vscode.TreeItemCollapsibleState.None,
+      undefined,
+      {
+        iconId: runtime.selectedModel ? 'pass' : (runtime.selectedModelSource === 'local-direct-no-llm' ? 'zap' : 'circle-outline'),
+        description: runtime.selectedModelSource || '',
+        tooltip: runtime.selectedModel
+          ? JSON.stringify(runtime.selectedModel, null, 2)
+          : '짧은 상태/도움말 요청은 크레딧을 쓰지 않고 로컬에서 답할 수 있습니다.',
+      },
+    ));
+    children.push(new MaestroTreeItem(
+      `모드: ${runtime.executorMode || '?'}`,
+      'runtime-executor',
+      vscode.TreeItemCollapsibleState.None,
+      undefined,
+      { iconId: 'settings-gear' },
+    ));
+    children.push(new MaestroTreeItem(
+      `intent: ${runtime.intent || '?'} / pipeline: ${(runtime.pipeline || []).join(' -> ') || '직접 답변'}`,
+      'runtime-router',
+      vscode.TreeItemCollapsibleState.None,
+      undefined,
+      {
+        iconId: 'list-tree',
+        tooltip: `promptChars=${runtime.promptChars ?? '?'}\nupdated=${runtime.updatedAt || '?'}`,
+      },
+    ));
+
+    const auth = runtime.githubAuth;
+    children.push(new MaestroTreeItem(
+      auth?.hasSession
+        ? `VS Code GitHub: ${auth.accountLabel || '(label 없음)'}`
+        : auth?.accountLabel
+          ? `VS Code GitHub: ${auth.accountLabel} (권한 미승인)`
+          : 'VS Code GitHub: 세션 없음',
+      'runtime-account',
+      vscode.TreeItemCollapsibleState.None,
+      undefined,
+      {
+        iconId: auth?.hasSession ? 'github' : 'account',
+        description: auth?.accountCount !== undefined ? `${auth.accountCount} account(s)` : '',
+        tooltip: auth?.error
+          ? auth.error
+          : 'VS Code authentication API의 github 세션입니다. Copilot 결제/조직 allowance 자체는 VS Code 공개 API가 직접 노출하지 않습니다.',
+      },
+    ));
+
+    const description = runtime.selectedModel
+      ? runtime.selectedModel.name
+      : runtime.selectedModelSource === 'local-direct-no-llm'
+        ? 'local'
+        : '대기';
+    return new MaestroTreeItem(
+      '런타임 연결 상태',
+      'runtime',
+      vscode.TreeItemCollapsibleState.Expanded,
+      children,
+      { iconId: 'radio-tower', description },
+    );
   }
 
   private buildMigrationNode(): MaestroTreeItem {
@@ -340,6 +425,51 @@ export class MaestroTreeProvider implements vscode.TreeDataProvider<MaestroTreeI
         iconId: 'pulse',
         description: `${session.inProgress.size}개 진행 중 / ${session.completed.length}개 완료`,
       },
+    );
+  }
+
+  private buildSubagentFlowNode(paths: HarnessPaths): MaestroTreeItem {
+    const flows = readFlowEvents(paths.log('subagent-flow.jsonl'));
+    const session = currentSession(flows);
+    if (!session) {
+      return new MaestroTreeItem(
+        'Subagent 호출 흐름',
+        'flow',
+        vscode.TreeItemCollapsibleState.Collapsed,
+        [new MaestroTreeItem('(아직 호출 없음)', 'flow-empty', vscode.TreeItemCollapsibleState.None, undefined, { iconId: 'circle-outline' })],
+        { iconId: 'type-hierarchy' },
+      );
+    }
+
+    const sessionFlows = flows
+      .filter(evt => evt.sessionId === session.sessionId && evt.agentName && KNOWN_AGENTS.has(evt.agentName))
+      .slice(-30);
+    const children = sessionFlows.map(evt => {
+      const isStart = evt.event === 'SubagentStart';
+      const isStop = evt.event === 'SubagentStop';
+      const label = `${isStart ? 'Start' : isStop ? 'Stop' : evt.event || '?'}: ${evt.agentName || '?'}`;
+      const description = isStop && evt.durationMs !== undefined && evt.durationMs !== null
+        ? formatDuration(evt.durationMs)
+        : evt.source || '';
+      return new MaestroTreeItem(
+        label,
+        'flow-event',
+        vscode.TreeItemCollapsibleState.None,
+        undefined,
+        {
+          iconId: evt.error ? 'error' : (isStart ? 'debug-start' : 'debug-stop'),
+          description,
+          tooltip: JSON.stringify(evt, null, 2),
+        },
+      );
+    });
+
+    return new MaestroTreeItem(
+      'Subagent 호출 흐름',
+      'flow',
+      vscode.TreeItemCollapsibleState.Collapsed,
+      children,
+      { iconId: 'type-hierarchy', description: `${children.length} events` },
     );
   }
 
@@ -616,6 +746,10 @@ function currentSession(events: FlowEvent[]): SessionSnapshot | null {
 function maskedPat(value: string): string {
   if (value.length <= 8) return '****';
   return value.slice(0, 4) + '…' + value.slice(-4);
+}
+
+function formatModel(model: RuntimeModelInfo): string {
+  return `${model.name} (${model.family || model.vendor})`;
 }
 
 function formatTime(iso: string): string {
