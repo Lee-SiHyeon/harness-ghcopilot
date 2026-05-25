@@ -59,7 +59,7 @@ Maestro는 위 조치를 **즉시** 수행한 뒤 Critic을 재호출한다.
 
 ## 체크 방법
 
-- **H1**: `.github/logs/subagent-flow.jsonl`에서 현재 sessionId 기준 `subagent_stop`/`stop` 이벤트를 직접 읽어 실행된 에이전트 목록을 확보하고, 📋 파이프라인 선언과 비교. Maestro 전달 목록과 jsonl 기록이 불일치하면 jsonl 기록을 우선 신뢰.
+- **H1**: `.github/logs/subagent-flow.jsonl`에서 현재 sessionId 기준 `subagent_stop`/`stop` 이벤트를 직접 읽어 실행된 에이전트 목록을 확보하고, 📋 파이프라인 선언과 비교. Maestro 전달 목록과 jsonl 기록이 불일치하면 jsonl 기록을 우선 신뢰. **추가 검증**: SubagentStop 이벤트가 1개 이상 있지만 모든 항목의 `agentName`이 비어있으면 H1 WARN (agent_type 미지원 환경 가능성 — 경고로 처리, FAIL 아님). SubagentStop 자체가 0개이면 H1 FAIL (파이프라인 미실행).
 - **H2**: `retrospective-history.md` 파일의 가장 최근 `---` 블록에서 `**자기비평**:` 값이 `(Maestro 기입 필요)`가 아닌지 확인
 - **H3**: Maestro가 전달한 intent 확인 → `implement` 또는 `fix`이면 Tester가 📋 선언에 포함됐는지 **AND** 실제 실행 목록에 포함됐는지 둘 다 검증. 하나라도 없으면 FAIL. 그 외 intent는 자동 PASS.
 - **H4**: 전달받은 완료된 작업 목록에 `Reviewer` ✅가 있는지 확인

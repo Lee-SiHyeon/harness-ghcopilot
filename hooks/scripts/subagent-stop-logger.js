@@ -54,6 +54,7 @@ function tryAudit(obj) {
     } catch (_) {}
     const rawAgentId = stdinData?.agent_id || '';
     const agentName  = (
+      stdinData?.agent_type ||
       (isToolCallId(rawAgentId) ? '' : rawAgentId) ||
       stdinData?.agent_name || stdinData?.agentName ||
       process.env.SUBAGENT_NAME || process.env.AGENT_NAME || ''

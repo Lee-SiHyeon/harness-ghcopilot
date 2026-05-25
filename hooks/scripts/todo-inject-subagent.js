@@ -38,7 +38,6 @@ async function readAgentDescription(name) {
   const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   const candidates = [
     path.resolve(process.cwd(), `.github/agents/${slug}.agent.md`),
-    path.resolve(process.cwd(), `.github/agents/${name}.agent.md`),
   ];
   for (const filePath of candidates) {
     try {
@@ -181,6 +180,7 @@ const DEFAULT_GUIDE = [
   // SubagentStart payload의 user_message는 현재 가이드 생성에 불필요.
   const rawAgentId = stdinData?.agent_id || '';
   agentName = (
+    stdinData?.agent_type ||
     (isToolCallId(rawAgentId) ? '' : rawAgentId) ||
     stdinData?.agent_name || stdinData?.agentName || agentName
   ).trim();

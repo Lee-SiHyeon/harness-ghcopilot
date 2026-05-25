@@ -395,3 +395,16 @@
 
 **자기비평**: hook-audit.jsonl 확인 시 날짜 필터 없이 -Tail 5만 확인해서 오늘 항목이 없다고 잘못 진단했다. 실제로는 오늘 오전부터 hooks가 정상 동작하고 있었다.
 **다음 번 개선**: 훅 동작 여부 진단 시 반드시 날짜 필터(Where-Object { \.ts -ge 오늘 })를 사용해서 오늘 항목만 필터링한다.
+
+---
+## 2026-05-25 — 훅 agent_type 읽기 + Critic H1 강화 (implement: subagent 이름 로깅 + 파이프라인 검증)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Investigator(직접) ✅ → Context7 웹 조회(직접) ✅ → Implementer #1(agent_type 추가, tc-179/180, critic.agent.md H1) ✅ → Tester #1(180/180) ✅ → Reviewer #1(Critical 2건: path traversal + false positive) ✅ → Implementer #2(path traversal 수정, H1 WARN 완화) ✅ → Tester #2(180/180) ✅ → Reviewer #2(PASS) ✅ → Critic → Release |
+| 건너뜀 | 없음 |
+| 반복 이슈 | 없음 |
+
+**자기비평**: todo-inject-subagent.js의 eadAgentDescription에서 unsanitized 
+ame을 경로에 직접 사용하는 path traversal 취약점이 기존에 존재했으나 Reviewer가 1차에서 발견했다. 신규 코드 추가 시 기존 함수의 보안 수준도 함께 검토해야 했다.
+**다음 번 개선**: 경로를 인자로 받는 기존 함수를 수정하거나 참조할 때, containment 검증 여부를 먼저 확인한다. path.resolve() + startsWith(baseDir + sep) 패턴 적용 여부를 체크한다.

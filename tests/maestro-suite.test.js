@@ -2091,4 +2091,68 @@ tc('tc-176', 'file-guard/uses-ssot',
   }
 });
 
+tc('tc-179', 'subagent-stop-logger/agent_type',
+  'stdin agent_type 필드가 agent_id 원시값보다 우선 적용됨 (agent_type 공식 문서 회귀)',
+  () => {
+  const os = require('os');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc179-'));
+  const logsDir = path.join(tmpDir, '.github', 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
+  const scriptPath = path.join(HOOKS, 'subagent-stop-logger.js');
+  const env = {
+    ...process.env,
+    SUBAGENT_NAME: '',
+    AGENT_NAME:    '',
+    SESSION_ID:    'test-session-179',
+  };
+  try {
+    execSync(`node "${scriptPath}"`, {
+      env,
+      cwd: tmpDir,
+      input: JSON.stringify({ agent_id: 'call_hofVJL7rvZpeZDof7gkUgGb6', agent_type: 'Tester' }),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const flowFile = path.join(logsDir, 'subagent-flow.jsonl');
+    if (!fs.existsSync(flowFile)) throw new Error('subagent-flow.jsonl 생성 안 됨');
+    const lines = fs.readFileSync(flowFile, 'utf8').trim().split('\n').filter(Boolean);
+    const last = JSON.parse(lines[lines.length - 1]);
+    if (last.agentName !== 'Tester') throw new Error(
+      `agent_type 무시됨. 기대=Tester 실제=${last.agentName}. agent_type 우선순위 수정 필요.`
+    );
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+tc('tc-180', 'todo-inject-subagent/agent_type',
+  'SubagentStart stdin의 agent_type으로 에이전트 이름 인식 (공식 문서 회귀)',
+  () => {
+  const os = require('os');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc180-'));
+  const logsDir = path.join(tmpDir, '.github', 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
+  const scriptPath = path.join(HOOKS, 'todo-inject-subagent.js');
+  const env = {
+    ...process.env,
+    SUBAGENT_NAME: '',
+    AGENT_NAME:    '',
+    USER_PROMPT:   '테스트',
+  };
+  try {
+    const result = execSync(`node "${scriptPath}"`, {
+      env,
+      cwd: tmpDir,
+      input: JSON.stringify({ agent_id: 'call_xyz123', agent_type: 'Reviewer' }),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const out = JSON.parse(result.toString());
+    const msg = out?.modifiedParameters?.userMessage || '';
+    if (!msg.includes('Reviewer')) throw new Error(
+      `agent_type="Reviewer"인데 가이드에 Reviewer 이름 없음. 출력: ${msg.slice(0, 200)}`
+    );
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 run();
