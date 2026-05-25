@@ -39,10 +39,10 @@ export const MAESTRO_READONLY_TOOL_NAMES = [
   'maestro_search_files',
 ];
 
-/** single-session 모드에서 outer LLM이 사용할 서브에이전트 호출 도구 이름. */
+/** Legacy/diagnostic subagent invocation tool name; default single-session is extension-driven. */
 export const MAESTRO_INVOKE_AGENT_TOOL_NAME = AGENT_TOOL_NAME;
 
-/** single-session 시작/종료 시 extension이 호출해 모델 컨텍스트를 주입/정리한다. */
+/** Context injection helpers for the legacy/diagnostic invoke_agent tool. */
 export { clearActiveInvokerContext, setActiveInvokerContext };
 
 interface ReadFileInput {

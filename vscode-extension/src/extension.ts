@@ -6,16 +6,12 @@ import { HarnessPaths } from './state/paths';
 import { clearActionItems, loadActionItemsCount } from './state/action-items';
 import { appendFlow, newCorrelationId } from './state/subagent-flow';
 import { executePipeline } from './pipeline/executor';
+import { executeSingleSessionPipeline } from './pipeline/single-session';
 import { MaestroTreeProvider } from './sidebar-view';
 import { McpTreeProvider } from './mcp-view';
 import { MaestroStatusBar } from './status-bar';
 import { registerCommands } from './commands';
-import {
-  clearActiveInvokerContext,
-  registerTools,
-  setActiveInvokerContext,
-  MAESTRO_INVOKE_AGENT_TOOL_NAME,
-} from './tools/registry';
+import { registerTools } from './tools/registry';
 import { HarnessWatcher } from './watcher';
 import { createLogger, MaestroLogger } from './logging';
 import { inspectGitChanges, isGitChangeQuery, renderGitChangeReport } from './local-git';
@@ -406,7 +402,53 @@ const handler: vscode.ChatRequestHandler = async (request, context, stream, toke
   }
 
   if (executorMode === 'single-session') {
-    await runSingleSession({ model, userMessage: modelUserMessage, stream, token, toolInvocationToken: request.toolInvocationToken, paths, pipeline: parsed.pipeline, intent: parsed.intent });
+    if (parsed.pipeline.length === 0) {
+      await runSingleSession({ model, userMessage: modelUserMessage, stream, token, toolInvocationToken: request.toolInvocationToken, intent: parsed.intent });
+      return;
+    }
+    const actionCount = loadActionItemsCount(paths);
+    const startedAt = Date.now();
+    const toolMode = isReadOnlyIntent(parsed.intent) ? 'read-only' : 'full';
+    logger?.info('single-session pipeline start', {
+      sessionId,
+      harnessPath: found.harnessPath,
+      workspaceRoot: found.workspaceRoot,
+      pipeline: parsed.pipeline,
+      intent: parsed.intent,
+      toolMode,
+      model: { name: model.name, vendor: model.vendor, family: model.family },
+      executorMode,
+    });
+    const results = await executeSingleSessionPipeline(parsed.pipeline, {
+      paths,
+      pipelineId: parsed.intent || 'unknown',
+      sessionId,
+      userTask: request.prompt,
+      maestroContext: modelUserMessage,
+      stream,
+      cancellation: token,
+      model,
+      debug,
+      streamAgentOutputs,
+      maxLoggedOutputChars,
+      toolInvocationToken: request.toolInvocationToken,
+      toolMode,
+      logger: logger ?? undefined,
+    });
+    const pipelineSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+    stream.markdown(`\n> ⏱️ single-session 파이프라인 완료: **${pipelineSec}s** | 단계: ${results.length} | intent: \`${parsed.intent}\`\n`);
+    logger?.info('single-session pipeline complete', { sessionId, durationMs: Date.now() - startedAt, steps: results.length, intent: parsed.intent });
+    if (actionCount > 0 && requiresAuditAndRelease(parsed.intent)) {
+      clearActionItems(paths);
+      if (debug) stream.markdown(`\n> [debug] cleared ${actionCount} actionItems after single-session run\n`);
+    }
+    finalizeRetrospective(paths, {
+      sessionId,
+      intent: parsed.intent || 'unknown',
+      plannedPipeline: parsed.pipeline,
+      results,
+      durationMs: Date.now() - startedAt,
+    });
     return;
   }
 
@@ -420,37 +462,19 @@ async function runSingleSession(args: {
   stream: vscode.ChatResponseStream;
   token: vscode.CancellationToken;
   toolInvocationToken?: vscode.ChatParticipantToolToken;
-  paths?: HarnessPaths;
-  pipeline?: string[];
   intent?: string;
 }): Promise<void> {
-  // pipeline이 있으면 maestro_invoke_agent 순서 지시 블록을 앞에 주입
-  let userMessageWithPipeline = args.userMessage;
-  const invokeContextId = newCorrelationId();
-  if (args.pipeline && args.pipeline.length > 0) {
-    const steps = args.pipeline.map((s, i) =>
-      `${i + 1}. maestro_invoke_agent({ context_id: "${invokeContextId}", agent_name: "${s}", task: "<이전 단계 결과를 반영한 작업>" })`
-    ).join("\n");
-    const pipelineStr = args.pipeline.join(" -> ");
-    const directive =
-      `## [파이프라인 실행 지시]\nintent: ${args.intent ?? 'unknown'}\npipeline: ${pipelineStr}\n\n` +
-      `모든 maestro_invoke_agent 호출에는 반드시 context_id: "${invokeContextId}" 를 포함하세요.\n` +
-      `아래 순서대로 maestro_invoke_agent 도구로 각 에이전트를 호출하세요:\n${steps}\n\n` +
-      `각 단계 출력을 다음 단계 prior_context로 전달하세요.\n\n---\n\n`;
-    userMessageWithPipeline = directive + args.userMessage;
-  }
-  const messages: vscode.LanguageModelChatMessage[] = [vscode.LanguageModelChatMessage.User(userMessageWithPipeline)];
-  const OUTER_TOOL_NAMES = ['maestro_read_file', 'maestro_list_files', 'maestro_search_files', MAESTRO_INVOKE_AGENT_TOOL_NAME];
+  const messages: vscode.LanguageModelChatMessage[] = [vscode.LanguageModelChatMessage.User(args.userMessage)];
+  const OUTER_TOOL_NAMES = ['maestro_read_file', 'maestro_list_files', 'maestro_search_files'];
   const tools = vscode.lm.tools.filter(t => OUTER_TOOL_NAMES.includes(t.name));
   let toolCallCount = 0;
-  setActiveInvokerContext(invokeContextId, args.model, args.paths ?? null, args.toolInvocationToken);
   try {
     const maxRounds = tools.length > 0 ? 10 : 1;
     for (let round = 0; round < maxRounds; round++) {
       const response = await args.model.sendRequest(messages, {
         tools,
         toolMode: tools.length > 0 ? vscode.LanguageModelChatToolMode.Auto : undefined,
-        justification: 'Maestro single-session with agent invocation support.',
+        justification: 'Maestro direct answer with read-only workspace tools.',
       }, args.token);
       const assistantParts: Array<vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart> = [];
       const toolCalls: vscode.LanguageModelToolCallPart[] = [];
@@ -464,12 +488,7 @@ async function runSingleSession(args: {
           toolCalls.push(part);
           toolCallCount++;
           logger?.info('single-session tool call requested', { name: part.name, input: part.input });
-          if (part.name === MAESTRO_INVOKE_AGENT_TOOL_NAME) {
-            const agentName = (part.input as Record<string, unknown>)?.agent_name ?? '?';
-            args.stream.markdown(`\n\n⚙️ **${agentName}** 에이전트 호입 중…\n`);
-          } else {
-            args.stream.markdown(`\n> 🔧 \`${part.name}\`\n`);
-          }
+          args.stream.markdown(`\n> 🔧 \`${part.name}\`\n`);
         }
       }
       if (toolCalls.length === 0) break;
@@ -483,10 +502,6 @@ async function runSingleSession(args: {
           new vscode.LanguageModelToolResultPart(call.callId, result.content),
         ]));
         logger?.info('single-session tool call completed', { name: call.name, callId: call.callId });
-        if (call.name === MAESTRO_INVOKE_AGENT_TOOL_NAME) {
-          const agentName = (call.input as Record<string, unknown>)?.agent_name ?? '?';
-          args.stream.markdown(`\n✅ **${agentName}** 완료\n`);
-        }
       }
     }
     logger?.info('single-session complete', { toolCallCount, messageCount: messages.length });
@@ -499,8 +514,6 @@ async function runSingleSession(args: {
     } else {
       throw e;
     }
-  } finally {
-    clearActiveInvokerContext(invokeContextId);
   }
 }
 async function runPassthrough(args: {

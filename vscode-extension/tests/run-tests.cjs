@@ -449,7 +449,11 @@ test('extension package contributes MCP view and commands', () => {
   assert.ok(tools.includes('maestro_invoke_agent'));
   const invokeAgent = pkg.contributes.languageModelTools.find(t => t.name === 'maestro_invoke_agent');
   assert.ok(invokeAgent.inputSchema.required.includes('context_id'));
-  assert.ok(pkg.contributes.configuration.properties['maestroChat.executorMode'].enum.includes('single-session'));
+  const executorMode = pkg.contributes.configuration.properties['maestroChat.executorMode'];
+  assert.ok(executorMode.enum.includes('single-session'));
+  assert.strictEqual(executorMode.default, 'single-session');
+  assert.match(executorMode.description, /extension-driven/);
+  assert.match(executorMode.enumDescriptions[1], /Tester retry/);
 });
 
 test('test-gate marks writes stale and accepts newer PASS evidence', () => {

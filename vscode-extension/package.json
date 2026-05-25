@@ -297,8 +297,8 @@
       {
         "name": "maestro_invoke_agent",
         "displayName": "Maestro: Invoke Agent",
-        "modelDescription": "single-session 모드에서 Maestro 하위 에이전트를 현재 요청 컨텍스트 안에서 호출합니다. extension이 제공한 context_id를 반드시 그대로 전달해야 합니다.",
-        "userDescription": "Maestro 하위 에이전트를 호출합니다.",
+        "modelDescription": "Legacy/diagnostic only. 기본 single-session 파이프라인은 extension이 직접 실행합니다. extension이 제공한 context_id가 있을 때만 하위 에이전트를 호출합니다.",
+        "userDescription": "Maestro 하위 에이전트를 진단용으로 호출합니다.",
         "canBeReferencedInPrompt": false,
         "tags": [
           "maestro"
@@ -366,10 +366,10 @@
           ],
           "enumDescriptions": [
             "Phase 1 동작: 분류 → 배지 출력 → Maestro userMessage 전체를 단일 LLM 호출. 빠르지만 LLM이 멀티 에이전트 흐름을 스스로 모방해야 함.",
-            "단일 LLM 세션에서 읽기 전용 Maestro 도구 결과를 messages 배열에 누적하며 답변. 질문/조사에 빠르고 안전한 모드.",
+            "기본 동작: extension이 파이프라인 step 순서를 직접 실행하되 같은 messages 배열을 유지. Tester retry, Release gate, 로그/회고를 보존하면서 단일 세션 문맥을 이어감.",
             "Phase 2 동작: 파이프라인의 각 step마다 별개 vscode.lm 호출 (시스템=해당 agent의 .agent.md 본문). 진짜 멀티 에이전트 실행. 토큰 더 소비, 시간 더 걸림."
           ],
-          "description": "응답 생성 방식: passthrough(단일 호출), single-session(읽기 도구 포함 단일 세션), multi-agent(파이프라인 step별 호출)"
+          "description": "응답 생성 방식: passthrough(단일 호출), single-session(extension-driven 단일 세션 파이프라인), multi-agent(파이프라인 step별 호출)"
         },
         "maestroChat.modelFamily": {
           "type": "string",
@@ -379,7 +379,7 @@
         "maestroChat.streamAgentOutputs": {
           "type": "boolean",
           "default": true,
-          "description": "multi-agent 모드에서 각 에이전트 출력을 채팅에 실시간 표시할지 여부. false면 요약만 표시하고 logs/pipeline.jsonl에는 기록."
+          "description": "single-session/multi-agent 모드에서 각 에이전트 출력을 채팅에 실시간 표시할지 여부. false면 요약만 표시하고 logs/pipeline.jsonl에는 기록."
         },
         "maestroChat.maxPriorStepChars": {
           "type": "number",
