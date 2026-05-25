@@ -17,6 +17,7 @@ import { createLogger, MaestroLogger } from './logging';
 import { inspectGitChanges, isGitChangeQuery, renderGitChangeReport } from './local-git';
 import { finalizeRetrospective } from './state/retrospective';
 import { buildBadge, buildInternalUserMessage, classifyPrompt } from './router/internal';
+import { classifyPromptWithGitHubModels } from './router/llm';
 import { normalizePipeline, requiresAuditAndRelease } from './pipeline/config';
 import { choosePreferredModel } from './model-selection';
 import { renderLocalDirectAnswer } from './local-direct';
@@ -128,6 +129,7 @@ const handler: vscode.ChatRequestHandler = async (request, context, stream, toke
   const debug = cfg.get<boolean>('debug', false);
   const timeoutMs = cfg.get<number>('routerTimeoutMs', 15_000);
   const useLegacyRouter = cfg.get<boolean>('useLegacyRouter', false);
+  const useLlmRouter = cfg.get<boolean>('useLlmRouter', true);
   const executorMode = (cfg.get<string>('executorMode', 'single-session') as ExecutorMode);
   const modelFamily = (cfg.get<string>('modelFamily') || '').trim();
   const streamAgentOutputs = cfg.get<boolean>('streamAgentOutputs', true);
@@ -256,6 +258,23 @@ const handler: vscode.ChatRequestHandler = async (request, context, stream, toke
     }
   } else {
     let analysis = classifyPrompt(request.prompt, paths);
+    let llmRouterReason = '';
+    const preliminaryLocalDirect = Boolean(renderLocalDirectAnswer(request.prompt, analysis.intent, analysis.pipeline));
+    if (useLlmRouter && !preliminaryLocalDirect) {
+      stream.progress('GitHub Models LLM router 분류 중…');
+      const llm = await classifyPromptWithGitHubModels(request.prompt, paths, Math.min(timeoutMs, 10_000));
+      llmRouterReason = llm.reason;
+      if (llm.analysis) analysis = llm.analysis;
+      logger?.info('llm router result', {
+        sessionId,
+        used: llm.used,
+        success: Boolean(llm.analysis),
+        reason: llm.reason,
+        model: llm.model,
+        intent: llm.analysis?.intent,
+        pipeline: llm.analysis?.pipeline,
+      });
+    }
     // actionItems override: trivial intent but unresolved items exist → bump to inspect
     const pendingItems = loadActionItemsCount(paths);
     const hasLocalDirectAnswer = Boolean(renderLocalDirectAnswer(request.prompt, analysis.intent, analysis.pipeline));
@@ -273,7 +292,7 @@ const handler: vscode.ChatRequestHandler = async (request, context, stream, toke
       pipeline: analysis.pipeline,
       complexity: analysis.complexity,
       stacks: analysis.stacks,
-      reason: analysis.reason,
+      reason: llmRouterReason ? `${analysis.reason} (${llmRouterReason})` : analysis.reason,
       pendingActionItems: pendingItems,
     });
   }

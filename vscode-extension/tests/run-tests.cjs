@@ -12,6 +12,7 @@ const { appendPipelineStep } = require('../out/state/pipeline-log.js');
 const { redactSecrets } = require('../out/state/redaction.js');
 const { isGitChangeQuery, renderGitChangeReport } = require('../out/local-git.js');
 const { classifyPrompt, buildBadge, buildInternalUserMessage } = require('../out/router/internal.js');
+const { classifyPromptWithGitHubModels } = require('../out/router/llm.js');
 const { loadPipelineConfig, normalizePipeline } = require('../out/pipeline/config.js');
 const { inspectMcpStatus, MCP_TOOL_NAMES } = require('../out/mcp-status.js');
 const {
@@ -69,6 +70,9 @@ function makeHarness() {
     'description: >',
     '  Plans changes before implementation.',
     'model: [ GPT-5, Claude Sonnet ]',
+    'tools: [read, search, todo]',
+    'agents: [Inspector, Critic]',
+    'user-invocable: false',
     '---',
     '# Planner',
     'Plan first.'
@@ -169,6 +173,9 @@ test('agent loader handles CRLF frontmatter and first-word lookup', () => {
   assert.ok(planner);
   assert.match(planner.description, /Plans changes/);
   assert.deepStrictEqual(planner.modelPreferences, ['GPT-5', 'Claude Sonnet']);
+  assert.deepStrictEqual(planner.toolPreferences, ['read', 'search', 'todo']);
+  assert.deepStrictEqual(planner.delegatedAgents, ['Inspector', 'Critic']);
+  assert.strictEqual(planner.userInvocable, false);
   assert.match(planner.systemPrompt, /Plan first/);
   const context7 = loadAgent(fixture.paths, 'Context7 Docs Agent');
   assert.ok(context7);
@@ -456,6 +463,7 @@ test('extension package contributes MCP view and commands', () => {
   assert.strictEqual(executorMode.default, 'single-session');
   assert.match(executorMode.description, /extension-driven/);
   assert.match(executorMode.enumDescriptions[1], /Tester retry/);
+  assert.strictEqual(pkg.contributes.configuration.properties['maestroChat.useLlmRouter'].default, true);
 });
 
 test('model selection avoids premium Opus as the default first choice', () => {
@@ -472,8 +480,16 @@ test('local direct answers avoid LLM for short casual prompts', () => {
   assert.match(renderLocalDirectAnswer(' 야 뭐하냐', 'query', []), /로컬에서 바로 답/);
   assert.match(renderLocalDirectAnswer('야 뭐함', 'query', []), /로컬에서 바로 답/);
   assert.match(renderLocalDirectAnswer('야', 'query', []), /로컬에서 바로 답/);
+  assert.match(renderLocalDirectAnswer('subagent 호출기능있냐?', 'question', []), /maestro_invoke_agent/);
   assert.match(renderLocalDirectAnswer('사용법 알려줘', 'question', []), /single-session/);
   assert.strictEqual(renderLocalDirectAnswer('이 파일 고쳐줘', 'fix', ['Implementer']), undefined);
+});
+
+test('GitHub Models router reports missing PAT without network', async () => {
+  const result = await classifyPromptWithGitHubModels('고쳐줘', fixture.paths, 1000);
+  assert.strictEqual(result.analysis, null);
+  assert.strictEqual(result.used, false);
+  assert.match(result.reason, /GITHUB_PAT missing/);
 });
 
 test('test-gate marks writes stale and accepts newer PASS evidence', () => {

@@ -89,9 +89,11 @@ ${input.task}`;
 
     let output = '';
     const maxRounds = subTools.length > 0 ? 3 : 1;
+    let endedAfterToolCalls = false;
 
     for (let round = 0; round < maxRounds; round++) {
       if (token.isCancellationRequested) break;
+      endedAfterToolCalls = false;
 
       const response = await (ctx.model as vscode.LanguageModelChat).sendRequest(messages, {
         tools: subTools,
@@ -114,6 +116,7 @@ ${input.task}`;
       }
 
       if (toolCalls.length === 0) break;
+      endedAfterToolCalls = true;
 
       messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
       for (const call of toolCalls) {
@@ -124,6 +127,19 @@ ${input.task}`;
         messages.push(vscode.LanguageModelChatMessage.User([
           new vscode.LanguageModelToolResultPart(call.callId, result.content),
         ]));
+      }
+    }
+    if (output.trim().length === 0 && endedAfterToolCalls) {
+      messages.push(vscode.LanguageModelChatMessage.User(
+        '도구 호출은 끝났다. 추가 도구 호출 없이, 지금까지의 도구 결과만 바탕으로 subagent 최종 답변을 작성하라.',
+      ));
+      const response = await (ctx.model as vscode.LanguageModelChat).sendRequest(messages, {
+        tools: [],
+        justification: `Maestro invoke_agent final answer: ${input.agent_name}`,
+      }, token);
+      for await (const part of response.stream) {
+        if (token.isCancellationRequested) break;
+        if (part instanceof vscode.LanguageModelTextPart) output += part.value;
       }
     }
 

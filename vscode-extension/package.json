@@ -351,6 +351,11 @@
           "default": false,
           "description": "true면 extension 내부 TS router 대신 기존 hooks/scripts/maestro-router.js를 child_process로 호출합니다. 마이그레이션 검증용 legacy fallback."
         },
+        "maestroChat.useLlmRouter": {
+          "type": "boolean",
+          "default": true,
+          "description": "true면 useLegacyRouter=false일 때 GITHUB_PAT 기반 GitHub Models LLM router를 먼저 시도하고 실패 시 extension TS router로 폴백합니다."
+        },
         "maestroChat.debug": {
           "type": "boolean",
           "default": false,

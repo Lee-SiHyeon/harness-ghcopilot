@@ -27,6 +27,17 @@ export function renderLocalDirectAnswer(prompt: string, intent: string, pipeline
     ].join('\n');
   }
 
+  if (isSubagentQuestion(compact)) {
+    return [
+      '네. 현재 확장에는 두 종류의 subagent 흐름이 있습니다.',
+      '',
+      '- 기본 실행: extension이 `single-session` 파이프라인을 직접 운전하며 각 step을 `SubagentStart/Stop`으로 기록합니다.',
+      '- 선택적 위임: `.agent.md` frontmatter의 `agents: [...]` 목록이 있는 agent는 `maestro_invoke_agent` 도구로 읽기 전용 subagent 조사를 호출할 수 있습니다.',
+      '',
+      '단, 이것은 OMG의 VS Code native `@agent`/agent mode 위임과 완전히 같은 것은 아닙니다. 이 확장은 안정성을 위해 extension-controlled pipeline을 기본으로 쓰고, frontmatter 기반 위임은 제한적으로 연결합니다.',
+    ].join('\n');
+  }
+
   return undefined;
 }
 
@@ -36,4 +47,8 @@ function isCasualStatus(text: string): boolean {
 
 function isHelpRequest(text: string): boolean {
   return text.length <= 40 && /(사용법|도움말|help|뭐 할 수|뭐할 수|이 확장 뭐|마에스트로 뭐|maestro 뭐)/i.test(text);
+}
+
+function isSubagentQuestion(text: string): boolean {
+  return text.length <= 80 && /(subagent|sub-agent|서브에이전트|하위\s*에이전트|호출기능|호출\s*기능|runsubagent)/i.test(text);
 }

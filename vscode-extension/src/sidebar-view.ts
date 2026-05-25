@@ -6,6 +6,7 @@ import { getGateState, getTestEvidence, isEvidenceValid } from './state/test-gat
 import { envPathFor, getEnvValue } from './env-file';
 import { inspectMcpStatus } from './mcp-status';
 import { getRuntimeSnapshot, RuntimeModelInfo } from './runtime-state';
+import { listAgents } from './agents/loader';
 
 const KNOWN_AGENTS = new Set([
   'Planner', 'Implementer', 'Tester', 'Reviewer', 'Critic',
@@ -124,6 +125,7 @@ export class MaestroTreeProvider implements vscode.TreeDataProvider<MaestroTreeI
       this.buildRuntimeNode(),
       this.buildMigrationNode(),
       this.buildMcpNode(harnessPath),
+      this.buildAgentsNode(paths),
       this.buildSessionNode(paths),
       this.buildSubagentFlowNode(paths),
       this.buildTestGateNode(paths),
@@ -215,17 +217,97 @@ export class MaestroTreeProvider implements vscode.TreeDataProvider<MaestroTreeI
     );
   }
 
+  private buildAgentsNode(paths: HarnessPaths): MaestroTreeItem {
+    const agents = listAgents(paths);
+    if (agents.length === 0) {
+      return new MaestroTreeItem(
+        'Agent Catalog',
+        'agents',
+        vscode.TreeItemCollapsibleState.Collapsed,
+        [new MaestroTreeItem('(agents/*.agent.md 없음)', 'agents-empty', vscode.TreeItemCollapsibleState.None, undefined, { iconId: 'warning' })],
+        { iconId: 'person', description: '0' },
+      );
+    }
+
+    const reviewerAgents = agents.filter(agent => /reviewer/i.test(agent.fileName || agent.name));
+    const coreAgents = agents.filter(agent => !reviewerAgents.includes(agent));
+    const makeLeaf = (agent: ReturnType<typeof listAgents>[number]) => new MaestroTreeItem(
+      `@${agent.name}`,
+      'agent-leaf',
+      vscode.TreeItemCollapsibleState.None,
+      undefined,
+      {
+        iconId: agent.userInvocable ? 'person' : 'eye-closed',
+        description: [
+          agent.delegatedAgents.length ? `delegates ${agent.delegatedAgents.length}` : '',
+          agent.toolPreferences.length ? `tools ${agent.toolPreferences.length}` : '',
+        ].filter(Boolean).join(' / '),
+        tooltip: [
+          agent.description || '(description 없음)',
+          agent.modelPreferences.length ? `models: ${agent.modelPreferences.join(', ')}` : '',
+          agent.toolPreferences.length ? `tools: ${agent.toolPreferences.join(', ')}` : '',
+          agent.delegatedAgents.length ? `agents: ${agent.delegatedAgents.join(', ')}` : '',
+          `user-invocable: ${agent.userInvocable}`,
+        ].filter(Boolean).join('\n'),
+        command: agent.fileName
+          ? { command: 'vscode.open', title: 'Open Agent Definition', arguments: [vscode.Uri.file(paths.agent(agent.fileName))] }
+          : undefined,
+      },
+    );
+
+    const children: MaestroTreeItem[] = [];
+    if (coreAgents.length > 0) {
+      children.push(new MaestroTreeItem(
+        'Core Agents',
+        'agent-category',
+        vscode.TreeItemCollapsibleState.Expanded,
+        coreAgents.map(makeLeaf),
+        { iconId: 'folder', description: `${coreAgents.length}` },
+      ));
+    }
+    if (reviewerAgents.length > 0) {
+      children.push(new MaestroTreeItem(
+        'Language Reviewers',
+        'agent-category',
+        vscode.TreeItemCollapsibleState.Collapsed,
+        reviewerAgents.map(makeLeaf),
+        { iconId: 'folder', description: `${reviewerAgents.length}` },
+      ));
+    }
+
+    const delegating = agents.filter(agent => agent.delegatedAgents.length > 0).length;
+    return new MaestroTreeItem(
+      'Agent Catalog',
+      'agents',
+      vscode.TreeItemCollapsibleState.Collapsed,
+      children,
+      { iconId: 'person', description: `${agents.length} / delegates ${delegating}` },
+    );
+  }
+
   private buildMigrationNode(): MaestroTreeItem {
     const cfg = vscode.workspace.getConfiguration('maestroChat');
     const useLegacyRouter = cfg.get<boolean>('useLegacyRouter', false);
+    const useLlmRouter = cfg.get<boolean>('useLlmRouter', true);
     const legacyMcp = cfg.get<boolean>('legacyMcpEnabled', false);
     const children = [
       new MaestroTreeItem(
-        useLegacyRouter ? 'Router: legacy hook child_process' : 'Router: extension TS',
+        useLegacyRouter
+          ? 'Router: legacy hook child_process'
+          : useLlmRouter
+            ? 'Router: GitHub Models LLM -> extension TS fallback'
+            : 'Router: extension TS only',
         'migration-router',
         vscode.TreeItemCollapsibleState.None,
         undefined,
-        { iconId: useLegacyRouter ? 'warning' : 'pass' },
+        {
+          iconId: useLegacyRouter ? 'warning' : 'pass',
+          tooltip: useLegacyRouter
+            ? 'hooks/scripts/maestro-router.js를 child_process로 호출합니다.'
+            : useLlmRouter
+              ? 'GITHUB_PAT가 있으면 extension 내부에서 GitHub Models gpt-4o-mini 분류를 먼저 시도합니다.'
+              : 'GITHUB_PAT가 있어도 분류에는 쓰지 않고 deterministic TS router만 사용합니다.',
+        },
       ),
       new MaestroTreeItem(
         legacyMcp ? 'MCP: legacy 병행' : 'MCP: optional / 미사용',

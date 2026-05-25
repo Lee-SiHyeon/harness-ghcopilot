@@ -4,7 +4,13 @@ import { appendPipelineStep } from '../state/pipeline-log';
 import { HarnessPaths } from '../state/paths';
 import { appendFlow, newCorrelationId } from '../state/subagent-flow';
 import { getGateState, getTestEvidence, isEvidenceValid } from '../state/test-gate';
-import { MAESTRO_READONLY_TOOL_NAMES, MAESTRO_TOOL_NAMES } from '../tools/registry';
+import {
+  clearActiveInvokerContext,
+  MAESTRO_INVOKE_AGENT_TOOL_NAME,
+  MAESTRO_READONLY_TOOL_NAMES,
+  MAESTRO_TOOL_NAMES,
+  setActiveInvokerContext,
+} from '../tools/registry';
 import { loadPipelineConfig } from './config';
 import type { StepResult } from './executor';
 
@@ -57,33 +63,38 @@ export async function executeSingleSessionPipeline(
   const config = loadPipelineConfig(ctx.paths);
   const maxTesterRetries = Math.max(0, config.maxTesterRetries ?? 3);
   const hasImplementer = steps.includes('Implementer');
+  const invokeContextId = newCorrelationId();
+  setActiveInvokerContext(invokeContextId, ctx.model, ctx.paths, ctx.toolInvocationToken);
+  try {
+    for (let i = 0; i < steps.length; i++) {
+      if (ctx.cancellation.isCancellationRequested) break;
+      const agentName = steps[i];
 
-  for (let i = 0; i < steps.length; i++) {
-    if (ctx.cancellation.isCancellationRequested) break;
-    const agentName = steps[i];
+      if (agentName === 'Release' && shouldBlockRelease(ctx)) {
+        const blocked = blockRelease(ctx);
+        results.push(blocked);
+        break;
+      }
 
-    if (agentName === 'Release' && shouldBlockRelease(ctx)) {
-      const blocked = blockRelease(ctx);
-      results.push(blocked);
-      break;
-    }
+      const result = await runStep(agentName, i + 1, steps.length, ctx, messages, 0, invokeContextId);
+      results.push(result);
 
-    const result = await runStep(agentName, i + 1, steps.length, ctx, messages, 0);
-    results.push(result);
-
-    if (agentName === 'Tester' && testerFailed(ctx, result) && hasImplementer) {
-      for (let retry = 1; retry <= maxTesterRetries; retry++) {
-        if (ctx.cancellation.isCancellationRequested) break;
-        ctx.stream.markdown(
-          '\n\n> 🔁 Tester 실패 감지 — 같은 세션에서 Implementer 재시도 ' + retry + '/' + maxTesterRetries + ' 후 Tester 재검증\n\n',
-        );
-        const implRetry = await runStep('Implementer', i + 1, steps.length, ctx, messages, retry);
-        results.push(implRetry);
-        const testerRetry = await runStep('Tester', i + 1, steps.length, ctx, messages, retry);
-        results.push(testerRetry);
-        if (!testerFailed(ctx, testerRetry)) break;
+      if (agentName === 'Tester' && testerFailed(ctx, result) && hasImplementer) {
+        for (let retry = 1; retry <= maxTesterRetries; retry++) {
+          if (ctx.cancellation.isCancellationRequested) break;
+          ctx.stream.markdown(
+            '\n\n> 🔁 Tester 실패 감지 — 같은 세션에서 Implementer 재시도 ' + retry + '/' + maxTesterRetries + ' 후 Tester 재검증\n\n',
+          );
+          const implRetry = await runStep('Implementer', i + 1, steps.length, ctx, messages, retry, invokeContextId);
+          results.push(implRetry);
+          const testerRetry = await runStep('Tester', i + 1, steps.length, ctx, messages, retry, invokeContextId);
+          results.push(testerRetry);
+          if (!testerFailed(ctx, testerRetry)) break;
+        }
       }
     }
+  } finally {
+    clearActiveInvokerContext(invokeContextId);
   }
 
   return results;
@@ -96,6 +107,7 @@ async function runStep(
   ctx: SingleSessionPipelineContext,
   messages: vscode.LanguageModelChatMessage[],
   attempt: number,
+  invokeContextId: string,
 ): Promise<StepResult> {
   const correlationId = newCorrelationId();
   const startTs = new Date().toISOString();
@@ -127,8 +139,8 @@ async function runStep(
   let toolCallCount = 0;
   let errorMessage: string | undefined;
   try {
-    messages.push(vscode.LanguageModelChatMessage.User(buildStepMessage(ctx, agentName, agent.systemPrompt, attempt)));
-    const loop = await runModelLoop(ctx, messages);
+    messages.push(vscode.LanguageModelChatMessage.User(buildStepMessage(ctx, agentName, agent.systemPrompt, attempt, agent.delegatedAgents, invokeContextId)));
+    const loop = await runModelLoop(ctx, messages, agent.delegatedAgents.length > 0);
     output = loop.output;
     toolCallCount = loop.toolCallCount;
     if (ctx.streamAgentOutputs === false) {
@@ -195,10 +207,21 @@ function buildStepMessage(
   agentName: string,
   systemPrompt: string,
   attempt: number,
+  delegatedAgents: string[],
+  invokeContextId: string,
 ): string {
   const toolNote = ctx.toolMode === 'read-only'
     ? '읽기 전용 모드다. 파일 쓰기, 터미널 실행, git 작업은 하지 않는다.'
     : '필요하면 Maestro 도구를 사용한다. Tester는 테스트 명령 증거를 남기고, Release는 gate를 지킨다.';
+  const delegationNote = delegatedAgents.length > 0
+    ? [
+      '',
+      '## [Delegation metadata]',
+      `이 agent frontmatter의 agents 목록: ${delegatedAgents.join(', ')}`,
+      `필요하면 \`${MAESTRO_INVOKE_AGENT_TOOL_NAME}\` 도구로 위 목록의 subagent에게 읽기 전용 조사/검토를 위임할 수 있다.`,
+      `호출 시 context_id는 반드시 "${invokeContextId}" 를 그대로 사용한다.`,
+    ].join('\n')
+    : '';
   return [
     `## [Single-session pipeline step: ${agentName}${attempt ? ` retry ${attempt}` : ''}]`,
     '이 단계에서는 아래 agent instruction을 현재 역할로 적용한다.',
@@ -212,15 +235,18 @@ function buildStepMessage(
     '',
     '## [Step instruction]',
     `당신은 **${agentName}** 입니다. 배지/파이프라인 헤더는 반복하지 말고, 이 단계 결과만 출력하세요. ${toolNote}`,
+    delegationNote,
   ].join('\n');
 }
 
 async function runModelLoop(
   ctx: SingleSessionPipelineContext,
   messages: vscode.LanguageModelChatMessage[],
+  allowInvokeAgent: boolean,
 ): Promise<ModelLoopResult> {
   const allowed = ctx.toolMode === 'read-only' ? MAESTRO_READONLY_TOOL_NAMES : MAESTRO_TOOL_NAMES;
-  const tools = vscode.lm.tools.filter(t => allowed.includes(t.name));
+  const allowedWithDelegation = allowInvokeAgent ? [...allowed, MAESTRO_INVOKE_AGENT_TOOL_NAME] : allowed;
+  const tools = vscode.lm.tools.filter(t => allowedWithDelegation.includes(t.name));
   const maxRounds = tools.length > 0 ? 4 : 1;
   const outputCap = (ctx.maxLoggedOutputChars ?? 4000) * 2;
   let output = '';

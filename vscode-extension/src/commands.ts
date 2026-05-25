@@ -68,7 +68,7 @@ async function cmdClearGithubPat(resolver: HarnessResolver, refresh: RefreshFn):
     return;
   }
   const pick = await vscode.window.showWarningMessage(
-    `${envPath} 의 GITHUB_PAT를 제거할까요? 분류기가 regex 폴백으로 전환됩니다.`,
+    `${envPath} 의 GITHUB_PAT를 제거할까요? GitHub Models LLM router가 꺼지고 extension TS router만 사용됩니다.`,
     { modal: true },
     '제거',
   );
