@@ -26,6 +26,7 @@ const { buildPipelineActionItems, finalizeRetrospective } = require('../out/stat
 const { loadActionItems } = require('../out/state/action-items.js');
 const { createLogger } = require('../out/logging.js');
 const { npmTestSpawnSpec, runNpmTest } = require('../out/test-runner.js');
+const { choosePreferredModel, scoreModel } = require('../out/model-selection.js');
 
 const pendingTests = [];
 
@@ -454,6 +455,15 @@ test('extension package contributes MCP view and commands', () => {
   assert.strictEqual(executorMode.default, 'single-session');
   assert.match(executorMode.description, /extension-driven/);
   assert.match(executorMode.enumDescriptions[1], /Tester retry/);
+});
+
+test('model selection avoids premium Opus as the default first choice', () => {
+  const opus = { name: 'Claude Opus 4.6', vendor: 'copilot', family: 'claude-opus-4.6' };
+  const sonnet = { name: 'Claude Sonnet 4.6', vendor: 'copilot', family: 'claude-sonnet-4.6' };
+  const mini = { name: 'GPT-4.1 Mini', vendor: 'copilot', family: 'gpt-4.1-mini' };
+  assert.ok(scoreModel(opus) > scoreModel(sonnet));
+  assert.strictEqual(choosePreferredModel([opus, sonnet]), sonnet);
+  assert.strictEqual(choosePreferredModel([opus, mini, sonnet]), mini);
 });
 
 test('test-gate marks writes stale and accepts newer PASS evidence', () => {

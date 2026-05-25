@@ -109,7 +109,7 @@ npm install
   // 기본: 같은 LLM messages 세션 안에서 extension이 파이프라인 step 순서를 직접 실행.
   "maestroChat.executorMode": "single-session",   // 또는 "multi-agent", "passthrough"
 
-  // 선택 모델 family. 비워두면 첫 번째 Copilot 모델 사용.
+  // 선택 모델 family. 비워두면 Maestro가 Opus류 premium 모델보다 낮은 quota/cost 모델을 우선 선택.
   "maestroChat.modelFamily": "",
 
   // single-session/multi-agent 출력/비용 제어.

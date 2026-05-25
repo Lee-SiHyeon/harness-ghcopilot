@@ -18,6 +18,7 @@ import { inspectGitChanges, isGitChangeQuery, renderGitChangeReport } from './lo
 import { finalizeRetrospective } from './state/retrospective';
 import { buildBadge, buildInternalUserMessage, classifyPrompt } from './router/internal';
 import { normalizePipeline, requiresAuditAndRelease } from './pipeline/config';
+import { choosePreferredModel } from './model-selection';
 
 const PARTICIPANT_ID = 'maestro';
 const CONFIG_SECTION = 'maestroChat';
@@ -323,12 +324,13 @@ const handler: vscode.ChatRequestHandler = async (request, context, stream, toke
       ? { vendor: 'copilot', family: modelFamily }
       : { vendor: 'copilot' };
     const models = await vscode.lm.selectChatModels(selector);
-    model = models[0];
+    model = modelFamily ? models[0] : choosePreferredModel(models);
     logger?.info('model selected', {
       sessionId,
-      requestedFamily: modelFamily || '(first available)',
+      requestedFamily: modelFamily || '(auto preferred)',
       model: model ? { name: model.name, vendor: model.vendor, family: model.family } : null,
       candidates: models.length,
+      selectionStrategy: modelFamily ? 'configured-family-first' : 'prefer-lower-quota-cost',
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
