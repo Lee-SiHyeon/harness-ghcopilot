@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "_comment": "에이전트 입출력 계약 SSOT. io-validator.js, subagent-start-validator.js, subagent-stop-validator.js가 참조.",
+  "_version": "1.0.0",
+  "_updatedAt": "2026-05-25",
+  "maxRetries": 3,
+  "staleAfterMs": 3600000,
+  "agents": {
+    "Planner": {
+      "validation_level": "soft",
+      "description": "분석·설계 계획서 생성",
+      "inputs": { "promptKeywords": ["계획","설계","분석","구현","만들","추가","개선","plan"], "requiredPredecessor": null, "requiredFile": null },
+      "outputs": { "filesModified": false, "subagentFlowLogged": true }
+    },
+    "Implementer": {
+      "validation_level": "hard",
+      "description": "코드 구현 및 파일 수정",
+      "inputs": { "promptKeywords": ["구현","작성","수정","코드","implement","fix","고쳐"], "requiredPredecessor": null, "requiredPredecessorSoft": ["Planner"], "requiredFile": null },
+      "outputs": { "filesModified": true, "minFilesModified": 1, "fileModifiedPatterns": ["*.ts","*.tsx","*.js","*.mjs","*.py","*.go","*.json","*.md","*.yaml","*.yml","*.sh"], "excludePatterns": [".github/logs/**",".github/hooks/scripts/**"], "subagentFlowLogged": true }
+    },
+    "Tester": {
+      "validation_level": "hard",
+      "description": "테스트 실행 및 test-evidence.json 업데이트",
+      "inputs": { "promptKeywords": ["테스트","test","검증","확인","실행"], "requiredPredecessor": null, "requiredPredecessorSoft": ["Implementer"], "requiredFile": null },
+      "outputs": { "filesModified": false, "evidenceFile": ".github/logs/test-evidence.json", "evidenceField": "result", "evidenceExpectedValue": "PASS", "subagentFlowLogged": true }
+    },
+    "Reviewer": {
+      "validation_level": "soft",
+      "description": "코드 리뷰 및 승인",
+      "inputs": { "promptKeywords": ["리뷰","검토","review","확인","보안"], "requiredPredecessor": null, "requiredPredecessorSoft": ["Tester"], "requiredFile": null },
+      "outputs": { "filesModified": false, "subagentFlowLogged": true }
+    },
+    "Critic": {
+      "validation_level": "soft",
+      "description": "전략적 비평 및 품질 평가",
+      "inputs": { "promptKeywords": [], "requiredPredecessor": null },
+      "outputs": { "filesModified": false, "subagentFlowLogged": true }
+    },
+    "Release": {
+      "validation_level": "soft",
+      "description": "커밋·릴리즈 노트·버전 태깅",
+      "inputs": { "promptKeywords": ["릴리즈","배포","커밋","release","deploy","publish","tag"], "requiredPredecessor": null, "requiredPredecessorSoft": ["Reviewer"] },
+      "outputs": { "filesModified": false, "subagentFlowLogged": true }
+    },
+    "Investigator": {
+      "validation_level": "soft",
+      "description": "버그 근본 원인 분석",
+      "inputs": { "promptKeywords": ["오류","에러","버그","error","bug","왜","안 돼","디버그"], "requiredPredecessor": null },
+      "outputs": { "filesModified": false, "subagentFlowLogged": true }
+    },
+    "Documenter": {
+      "validation_level": "soft",
+      "description": "문서화 생성 및 업데이트",
+      "inputs": { "promptKeywords": ["문서","docs","README","설명","레퍼런스","document"], "requiredPredecessor": null },
+      "outputs": { "filesModified": true, "minFilesModified": 1, "fileModifiedPatterns": ["*.md","*.txt","docs/**","doc/**"], "subagentFlowLogged": true }
+    },
+    "Scout": {
+      "validation_level": "soft",
+      "description": "GitHub 트렌드·패턴 탐색",
+      "inputs": { "promptKeywords": ["scout","탐색","트렌드","패턴","awesome","GitHub stars","자기개선"], "requiredPredecessor": null },
+      "outputs": { "filesModified": false, "subagentFlowLogged": true }
+    },
+    "Context7 Docs Agent": {
+      "validation_level": "soft",
+      "description": "외부 라이브러리 공식 문서 조회",
+      "inputs": { "promptKeywords": [], "requiredPredecessor": null },
+      "outputs": { "filesModified": false, "subagentFlowLogged": true }
+    }
+  },
+  "maestro": {
+    "validation_level": "soft",
+    "description": "최상위 오케스트레이터 — UserPromptSubmit 단계 에이전트 (SubagentStart/Stop 없음)",
+    "note": "retrospective-trigger.js에서 maestro-output-result.json에 기록. 다음 UserPromptSubmit 시 maestro-router.js가 읽어 실패 주입.",
+    "outputs": {
+      "pipelineDeclared": true,
+      "minAgentsInvoked": 1,
+      "retroRecordedIfComplexity": 3,
+      "outputFile": ".github/logs/maestro-output-result.json"
+    }
+  }
+}

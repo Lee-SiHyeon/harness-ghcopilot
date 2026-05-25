@@ -339,6 +339,31 @@ if (require.main === module) { (function main() {
     }
   } catch (_) {}
 
+  // Maestro 출력 결과 기록 (세션 종료 시점 — 터미널 에이전트 Stop 시)
+  const MAESTRO_RESULT_PATH = path.join(LOGS_DIR, 'maestro-output-result.json');
+  const IO_RESULTS_PATH_RT  = path.join(LOGS_DIR, 'agent-io-results.jsonl');
+  try {
+    let ioLines = [];
+    try {
+      ioLines = fs.readFileSync(IO_RESULTS_PATH_RT, 'utf8').split('\n').filter(Boolean)
+        .map(l => { try { return JSON.parse(l); } catch(_) { return null; } }).filter(Boolean);
+    } catch(_) {}
+    const sessionFails = ioLines.filter(l =>
+      (!sessionId || l.sessionId === sessionId) &&
+      (l.level === 'FAIL' || l.level === 'FATAL')
+    );
+    const failedAgents = [...new Set(sessionFails.map(l => l.agentName))];
+    const maestroResult = {
+      sessionId,
+      ts: new Date().toISOString(),
+      validationFailed: failedAgents.length > 0,
+      failedAgents,
+    };
+    const tmp = MAESTRO_RESULT_PATH + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(maestroResult, null, 2), 'utf8');
+    fs.renameSync(tmp, MAESTRO_RESULT_PATH);
+  } catch(_) {}
+
   process.exit(0);
 })(); }
 

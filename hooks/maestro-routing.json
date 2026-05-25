@@ -17,6 +17,12 @@
       },
       {
         "type": "command",
+        "command": "node .github/hooks/scripts/subagent-start-validator.js",
+        "windows": "node .github/hooks/scripts/subagent-start-validator.js",
+        "timeout": 3
+      },
+      {
+        "type": "command",
         "command": "node .github/hooks/scripts/hook-stdin-dump.js",
         "windows": "node .github/hooks/scripts/hook-stdin-dump.js",
         "timeout": 2
@@ -27,6 +33,12 @@
         "type": "command",
         "command": "node .github/hooks/scripts/subagent-stop-logger.js",
         "windows": "node .github/hooks/scripts/subagent-stop-logger.js",
+        "timeout": 3
+      },
+      {
+        "type": "command",
+        "command": "node .github/hooks/scripts/subagent-stop-validator.js",
+        "windows": "node .github/hooks/scripts/subagent-stop-validator.js",
         "timeout": 3
       },
       {

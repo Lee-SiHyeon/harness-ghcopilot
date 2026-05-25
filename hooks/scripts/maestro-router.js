@@ -142,6 +142,39 @@ if (isMaestroContext) {
   // 미해결 개선 항목 경고 주입
   const actionWarning = loadActionItems();
   if (actionWarning) parts.push(actionWarning);
+  // ── Retry Queue 주입 ─────────────────────────────────────────────
+  const { loadContracts: _loadContracts } = (() => { try { return require('./io-validator'); } catch(_) { return {}; } })();
+  const retryQueuePath = path.join(path.resolve(process.cwd(), '.github', 'logs'), 'agent-retry-queue.json');
+  try {
+    let retryQueue = [];
+    try { retryQueue = JSON.parse(fs.readFileSync(retryQueuePath, 'utf8')); } catch(_) {}
+    const contracts   = _loadContracts ? _loadContracts() : null;
+    const maxRetries  = contracts?.maxRetries ?? 3;
+    const staleMs     = contracts?.staleAfterMs ?? 3_600_000;
+    const nowMs       = Date.now();
+    const currentSid  = sessionId;
+    const pending = retryQueue.filter(e =>
+      (!currentSid || e.sessionId === currentSid) &&
+      !e.consumed &&
+      e.retryCount < maxRetries &&
+      (nowMs - new Date(e.ts || 0).getTime()) < staleMs
+    );
+    if (pending.length > 0) {
+      const retryLines = ['## [IO-VALIDATION-RETRY]',
+        '아래 에이전트의 산출물 검증이 실패했습니다. 즉시 재호출하세요:'];
+      for (const item of pending) {
+        const safeName = (item.agentName || '').replace(/[\r\n`*_#\[\]]/g, '').slice(0, 40);
+        const safeReason = (item.reason || '').replace(/[\r\n]/g, ' ').slice(0, 120);
+        retryLines.push(`- ⚠️ **${safeName}** — ${safeReason}`);
+        retryLines.push(`  재시도 횟수: ${item.retryCount}/${maxRetries}`);
+      }
+      retryLines.push('', '> 각 에이전트를 순서대로 재호출하고 산출물 조건을 충족시킨 후 다음 단계로 진행한다.');
+      parts.push(retryLines.join('\n'));
+      for (const item of pending) { item.consumed = true; }
+      const tmp = retryQueuePath + '.tmp';
+      try { fs.writeFileSync(tmp, JSON.stringify(retryQueue, null, 2)); fs.renameSync(tmp, retryQueuePath); } catch(_) {}
+    }
+  } catch(_) {}
   if (resumeBlock) parts.push(resumeBlock);
   parts.push(
     '## [Maestro todo 가이드]',

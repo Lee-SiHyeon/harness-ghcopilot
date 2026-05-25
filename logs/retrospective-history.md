@@ -11,6 +11,19 @@
 
 ---
 
+## 2026-05-25 — Agent I/O 계약 시스템 구현 (implement: Planner→Implementer→Tester→Reviewer→Critic→Release)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Planner ✅ → Implementer(x4) ✅ → Tester(x2) ✅ → Reviewer ✅ → Critic ✅ |
+| 건너뜀 | 없음 |
+| 반복 이슈 | Implementer가 생성한 파일에 UTF-8 BOM이 포함되어 node --check 실패 반복 (3회). BOM 제거 PowerShell 스크립트로 해결. |
+
+**자기비평**: Implementer 호출마다 BOM 문제가 재발했다. 파일 생성 시 인코딩을 명시적으로 UTF-8 without BOM으로 지정하도록 Implementer 프롬프트에 강제화하지 못했다.
+**다음 번 개선**: 신규 .js 파일 생성을 포함하는 Implementer 호출 시 프롬프트에 "UTF-8 BOM 없이 저장 필수, 생성 후 반드시 `node --check` 실행"을 명시한다. 또는 BOM 제거를 Tester 1단계에 자동화한다.
+
+---
+
 ## 2026-05-24 — Scout Ralph Loop 2차: V-new1~4 수정 (subagent agentName 추적 강화) (fix: Scout->Planner->Implementer x2->Tester->Reviewer->Critic->Release)
 
 | 항목 | 내용 |
@@ -359,125 +372,3 @@
 
 **자기비평**: Implementer를 항목별로 5회 순차 호출했는데 일부 독립 항목(HIGH-6+HIGH-3 등)은 병렬 호출 가능했다. Reviewer가 Warning 2건을 발견했지만 Critical 없이 승인까지 1-pass로 끝났다.
 **다음 번 개선**: 독립적인 파일 수정은 Implementer 병렬 호출로 시간 단축. 보안 패치는 항목별 TC를 새로 추가하여 명시적 회귀 커버리지 확보.
-
-
-## 2026-05-25 — 로컬 MCP 서버 전면 구축 (feat: Planner->Implementer x4->Tester x3->Reviewer x2->Critic->Release)
-
-| 항목 | 내용 |
-|------|------|
-| 실행 | Planner ✅ → Implementer #1(state-lib+MCP src) ✅ → Implementer #2(훅 마이그레이션+mcp.json) ✅ → Tester #1(168/169) ✅ → Implementer #3(tc-061 수정) ✅ → Tester #2(169/169) ✅ → Reviewer(C-1 발견) ✅ → Implementer #4(C-1+W-1~3 수정) ✅ → Tester #3(169/169) ✅ → Reviewer 재확인 ✅ → Critic ✅ |
-| 건너뜀 | 없음 |
-| 반복 이슈 | Reviewer → Implementer → Tester → Reviewer 재검토 루프가 1회 발생 (C-1 result/status 필드 불일치). 초기 Implementer #2 단계에서 필드 이름 통일 검토가 충분하지 않았음. |
-
-**자기비평**: state-lib의 isEvidenceValid()가 `status` 필드만 체크하는데, 기존 hook이 `result`로 기록함을 사전에 확인하지 않아 Reviewer 단계에서야 발견됐다. 계획 단계에서 필드 스키마 일치 여부를 명시적으로 검토해야 했다.
-**다음 번 개선**: 기존 데이터 구조와 신규 state-lib 스키마 사이 필드명 매핑 테이블을 Planner 단계에서 먼저 작성한다. 또한 MCP SDK 등 외부 라이브러리 API 코드 작성이 포함된 Implementer 호출 시, Planner 체크리스트 1번 항목으로 "Context7 resolve-library-id + query-docs 선행 호출"을 명시한다.
-
-
-## 2026-05-25 — LangGraph 하네스 전환 구현 (feat: Context7->Planner->Implementer x2->Tester x2->Reviewer x2->Critic->Release)
-
-| 항목 | 내용 |
-|------|------|
-| 실행 | Context7 Docs Agent ✅ → Planner ✅ → Implementer #1(langgraph-harness 생성) ✅ → Tester #1(Python 60 OK/1 skip, JS 169/169) ✅ → Reviewer #1(Critical 3건 발견) ✅ → Implementer #2(path traversal/fan-out/PASS regex 수정) ✅ → Tester #2(Python 69 OK/1 skip, JS 169/169) ✅ → Reviewer #2(LGTM) ✅ → Critic ✅ |
-| 건너뜀 | 없음 |
-| 반복 이슈 | subagent-flow.jsonl에 현재 세션의 agentName/sessionId 검증 가능한 기록이 없어 H1 자동 검증이 불가능했다. 이는 기존 Bedrock tool_use_id/agentName null 구조적 한계와 같은 계열이며, 이번에는 수동 실행 근거(독립 Tester 결과: Python 69 OK/1 skip, JS 169/169 PASS)로 보완했다. |
-
-**자기비평**: 첫 구현에서 prompts/agent/file guard 로더의 경로 containment 검사를 충분히 강제하지 않아 Reviewer 단계에서 path traversal Critical 3건이 발견됐다. 또한 LangGraph가 미설치라 builder 통합 테스트가 skip되어 fan-out 라우팅 위험을 초기 테스트에서 잡지 못했다.
-**다음 번 개선**: 경로를 입력으로 받는 모든 신규 Python 로더/가드는 `Path.resolve()` + `relative_to(base)` containment 테스트를 먼저 작성한 뒤 구현한다. LangGraph 관련 변경에서는 optional dependency가 미설치여도 라우팅 구조를 정적으로 검사하는 테스트를 추가해 builder fan-out을 조기에 탐지한다.
-
----
-## 2026-05-25 — 훅 라우팅 분류 수정 (fix: classifier.js review/investigate 패턴)
-
-| 항목 | 내용 |
-|------|------|
-| 실행 | Investigator(직접) ✅ → Implementer #1(점검해 추가, 조사 패턴 강화) ✅ → Reviewer ✅ → Implementer #2(점검→점검해 명령형 한정) ✅ → Tester(maestro-suite 178/178) ✅ → Critic → Release |
-| 건너뜀 | 없음 |
-| 반복 이슈 | hook-audit.jsonl 오늘 항목 없다고 잘못 진단 (Tail 5가 어제 항목) |
-
-**자기비평**: hook-audit.jsonl 확인 시 날짜 필터 없이 -Tail 5만 확인해서 오늘 항목이 없다고 잘못 진단했다. 실제로는 오늘 오전부터 hooks가 정상 동작하고 있었다.
-**다음 번 개선**: 훅 동작 여부 진단 시 반드시 날짜 필터(Where-Object { \.ts -ge 오늘 })를 사용해서 오늘 항목만 필터링한다.
-
----
-## 2026-05-25 — 훅 agent_type 읽기 + Critic H1 강화 (implement: subagent 이름 로깅 + 파이프라인 검증)
-
-| 항목 | 내용 |
-|------|------|
-| 실행 | Investigator(직접) ✅ → Context7 웹 조회(직접) ✅ → Implementer #1(agent_type 추가, tc-179/180, critic.agent.md H1) ✅ → Tester #1(180/180) ✅ → Reviewer #1(Critical 2건: path traversal + false positive) ✅ → Implementer #2(path traversal 수정, H1 WARN 완화) ✅ → Tester #2(180/180) ✅ → Reviewer #2(PASS) ✅ → Critic → Release |
-| 건너뜀 | 없음 |
-| 반복 이슈 | 없음 |
-
-**자기비평**: todo-inject-subagent.js의 
-eadAgentDescription에서 unsanitized 
-ame을 경로에 직접 사용하는 path traversal 취약점이 기존에 존재했으나 Reviewer가 1차에서 발견했다. 신규 코드 추가 시 기존 함수의 보안 수준도 함께 검토해야 했다.
-**다음 번 개선**: 경로를 인자로 받는 기존 함수를 수정하거나 참조할 때, containment 검증 여부를 먼저 확인한다. path.resolve() + startsWith(baseDir + sep) 패턴 적용 여부를 체크한다.
----
-## 2026-05-25 — Hook stdin dump + 보안 수정 (fix/implement: H1/H2/H3 + stdin-dump)
-
-| 항목 | 내용 |
-|------|------|
-| 실행 | Investigator ✅ → Reviewer ✅ → Implementer ✅ → Tester ✅(regression) → Implementer #2 ✅ → Tester #2 ✅ → Reviewer #2 ✅ → Implementer #3 ✅ → Reviewer #3 ✅ |
-| 건너뜀 | 없음 |
-| 반복 이슈 | Tester가 pre-existing failure라고 잘못 보고 → 실제로는 regression (3건). stash diff로 재확인 필요. |
-
-**자기비평**: Tester가 regression을 pre-existing으로 오진단하여 Implementer #2가 추가로 필요했음. git stash 비교로 즉시 반박할 수 있었으나 Tester 보고를 신뢰한 실수.
-**다음 번 개선**: Tester 실행 후 "before/after" 베이스라인과 비교하는 단계를 필수화 — stash → test(baseline) → stash pop → test(after) 패턴으로 regression 여부를 수치로 확인.
-
-
----
-## 2026-05-25 — agent_type sentinel 필터 + Maestro 세션 추적 (fix: Investigator->Implementer->Tester->Reviewer->Critic->Release)
-
-| 항목 | 내용 |
-|------|------|
-| 실행 | Investigator ✅ → Implementer ✅ → Tester ✅(187/187) → Reviewer ✅ → Critic ✅ |
-| 건너뜀 | 없음 |
-| 반복 이슈 | Prototype pollution 경고 — starts[agentName] 쓰기 경로에 기존부터 있던 패턴. 신규 도입 아님. |
-
-**자기비평**: Retrospective가 Critic 호출 전이 아닌 Critic FAIL 이후에야 작성됨. H2 FAIL을 한 번 더 반복했다.
-**다음 번 개선**: complexity >= 3 파이프라인에서 Reviewer 승인 직후, Critic 호출 전에 반드시 Retrospective 항목을 작성하는 순서를 고정한다.
-
----
-## 2026-05-25 — hook-stdin-dump 등록 + TC 갭 3개 (feat: Implementer->Tester->Reviewer->Critic->Release)
-
-| 항목 | 내용 |
-|------|------|
-| 실행 | Implementer ✅(형식 오류) → Implementer #2 ✅ → Tester ✅(192/192) → Reviewer ✅ |
-| 건너뜀 | Planner(단순 변경) |
-| 반복 이슈 | TC 형식 오류(3-param vs 4-param) — 동일 패턴 2회 발생. |
-
-**자기비평**: Retrospective를 Critic 호출 전에 작성하지 않았다 — H2 FAIL 반복 패턴 지속. Reviewer 승인 직후 즉시 회고 작성하는 체크포인트가 아직 습관화되지 않음.
-**다음 번 개선**: Reviewer PASS 반환 수신 직후 자동으로 회고 블록을 작성하도록 파이프라인 내 고정 체크포인트로 만든다 (Reviewer response 후 다음 도구 호출 전).
-
----
-## 2026-05-25 — 분류 방식 헤더 노출 (implement: Planner->Implementer->Tester->Reviewer->Critic->Release)
-
-| 항목 | 내용 |
-|------|------|
-| 실행 | Planner(직접: output-builder+maestro-router 흐름 파악) ✅ → Implementer(직접: buildDisclosureLines/Header/UserMessage source 파라미터 추가, isMaestroContext 하드코딩 추가) ✅ → Tester(직접: tc-193~195 추가, 195 PASS) ✅ → Reviewer ✅ → Critic |
-| 건너뜀 | 없음 |
-| 반복 이슈 | H3 선언 파이프라인에서 Tester 누락 — 실제로는 Tester 실행됐으나 최초 선언에 `Tester` 미포함. 반복 패턴(Tester 건너뜀) 3회째. |
-
-**자기비평**: implement intent인데 선언 파이프라인 첫 줄(`Planner → Implementer → Reviewer → Critic → Release`)에서 Tester를 빠뜨렸다. Tester는 실행했지만 선언 누락은 Critic H3 FAIL의 직접 원인이 됐다.
-**다음 번 개선**: implement/fix intent가 확정되는 즉시 선언 파이프라인 첫 줄에 Tester를 반드시 포함한다. 선언 블록 출력 전 체크리스트: `implement/fix → Tester 포함 여부 확인`.
-
----
-## 2026-05-25 — 즉흥 파이프라인 ban 훅 강제 (implement: Planner->Implementer->Tester->Reviewer->Critic->Release)
-
-| 항목 | 내용 |
-|------|------|
-| 실행 | Planner ✅ → Implementer(3회) ✅ → Tester(2회) ✅ → Reviewer(2회) ✅ → Critic ✅ |
-| 건너뜀 | 없음 |
-| 반복 이슈 | 없음 |
-
-**자기비평**: tc-172 회귀를 Implementer 1차 호출에서 잡지 못하고 Tester 실행 후 발견. 사전 stash 검증으로 방지 가능했다.
-**다음 번 개선**: 신규 TC 추가 시 기존 TC 회귀 가능성 있는 상태(actionItems 비어있지 않음 등)를 Implementer에게 명시적으로 전달한다.
-
----
-## 2026-05-25 — Critic H1 검증 스크립트 제공 (implement: Planner→Implementer→Tester→Reviewer→Critic→Release)
-
-| 항목 | 내용 |
-|------|------|
-| 실행 | Implementer ✅(critic-h1-verify.js 생성 + critic.agent.md H1 설명/tools 업데이트) → Tester ✅(197/197) → Reviewer ✅ → Critic |
-| 건너뜀 | Planner(단순 스크립트 생성이라 Maestro 직접 분석으로 대체) |
-| 반복 이슈 | H1 WARN 반복 — subagent-flow.jsonl의 sessionId/agentName 구조적 한계 |
-
-**자기비평**: Critic이 스크립트를 실행했지만 count=0을 반환했다. 스크립트는 로컬에서 count=100을 반환하는데 Critic 실행 환경에서 다른 결과가 나오는 원인을 분석하지 못했다.
-**다음 번 개선**: Critic이 스크립트를 직접 실행하는 대신, Maestro가 Critic 호출 전 스크립트 실행 결과를 JSON으로 읽어 프롬프트에 직접 포함시킨다.
