@@ -33,26 +33,28 @@ function formatPipeline(pipeline) {
     : '미정';
 }
 
-function buildDisclosureLines(analysis) {
-  return [
+function buildDisclosureLines(analysis, source) {
+  const lines = [
     `🎯 **작업 유형**: ${analysis.intent}`,
     `📋 **파이프라인**: ${formatPipeline(analysis.pipeline)}`,
   ];
+  if (source) lines.push(`🔍 **분류 방식**: ${source}`);
+  return lines;
 }
 
-function buildDisclosureHeader(analysis) {
+function buildDisclosureHeader(analysis, source) {
   return [
     '## [⚠️ 필수 — 응답 첫 줄 출력 의무]',
     '아래 블록을 **응답의 첫 줄로** 반드시 출력한다. 단순 질문·짧은 답변도 예외 없음.',
     '```',
-    ...buildDisclosureLines(analysis),
+    ...buildDisclosureLines(analysis, source),
     '```',
     '이 블록 없이 내용을 출력하거나 에이전트를 호출하면 규칙 위반이다.',
   ].join('\n');
 }
 
-function buildUserMessage(analysis, parts) {
-  return [buildDisclosureHeader(analysis), ...parts].filter(Boolean).join('\n\n');
+function buildUserMessage(analysis, parts, source) {
+  return [buildDisclosureHeader(analysis, source), ...parts].filter(Boolean).join('\n\n');
 }
 
 function buildOriginalRequestBlock(prompt) {
@@ -86,7 +88,7 @@ function buildOutput(analysis, usedLLM, ctx) {
     return {
       continue: true,
       hookSpecificOutput: `💬 [Maestro] \`${intent}\` (${source} | 복잡도: ${routingComplexity}/10) — ${reason}`,
-      modifiedParameters: { userMessage: buildUserMessage(analysis, simpleParts) },
+      modifiedParameters: { userMessage: buildUserMessage(analysis, simpleParts, source) },
     };
   }
 
@@ -102,7 +104,7 @@ function buildOutput(analysis, usedLLM, ctx) {
       continue: false,
       decision: 'ask',
       reason: [
-        ...buildDisclosureLines(analysis),
+        ...buildDisclosureLines(analysis, source),
         '',
         `⚠️ **고위험 작업 감지** (복잡도: ${routingComplexity}/10)`,
         `- 파이프라인: ${pipeline.join(' → ')}`,
@@ -157,7 +159,7 @@ function buildOutput(analysis, usedLLM, ctx) {
     return {
       continue: true,
       hookSpecificOutput: statusLine,
-      modifiedParameters: { userMessage: buildUserMessage(analysis, parts) },
+      modifiedParameters: { userMessage: buildUserMessage(analysis, parts, source) },
     };
   }
 
@@ -186,7 +188,7 @@ function buildOutput(analysis, usedLLM, ctx) {
   return {
     continue: true,
     hookSpecificOutput: statusLine,
-    modifiedParameters: { userMessage: buildUserMessage(analysis, parts) },
+    modifiedParameters: { userMessage: buildUserMessage(analysis, parts, source) },
   };
 }
 

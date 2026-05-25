@@ -115,6 +115,7 @@ if (isMaestroContext) {
     '```',
     `🎯 **작업 유형**: ${analysis.intent}`,
     `📋 **파이프라인**: ${disclosurePipeline.join(' → ')}`,
+    `🔍 **분류 방식**: ⚙️ regex폴백`,
     '```',
     '이 블록 없이 내용을 출력하거나 에이전트를 호출하면 규칙 위반이다.',
   );

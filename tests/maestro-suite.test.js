@@ -2235,4 +2235,40 @@ tc('tc-192', 'classifier / regex-fallback', 'classifier.js — LLM 실패 시 re
   if (!router.includes('regex_fallback') && !router.includes('classifyWithRegex')) throw new Error('regex fallback 경로 없음');
 });
 
+tc('tc-193', 'disclosure / classification-badge', 'isMaestroContext — header contains regex badge', () => {
+  const result = runMaestroRouter('간단한 질문입니다', '');
+  const msg = result?.modifiedParameters?.userMessage || '';
+  if (!msg.includes('🔍 **분류 방식**: ⚙️ regex폴백')) {
+    throw new Error('regex badge missing from isMaestroContext header');
+  }
+});
+
+tc('tc-194', 'disclosure / classification-badge', 'buildOutput(usedLLM=false) — modifiedParameters header contains regex badge', () => {
+  const { buildOutput } = require('../hooks/scripts/router/output-builder.js');
+  const { classifyWithRegex } = require('../hooks/scripts/router/classifier.js');
+  const analysis = classifyWithRegex('구현해줘');
+  const result = buildOutput(analysis, false, { prompt: '구현해줘', MODEL: 'gpt-4o-mini' });
+  const msg = result?.modifiedParameters?.userMessage || '';
+  if (!msg.includes('🔍 **분류 방식**: ⚙️ regex폴백')) {
+    throw new Error('regex badge missing from buildOutput(usedLLM=false)');
+  }
+});
+
+tc('tc-195', 'disclosure / classification-badge', 'buildOutput(usedLLM=true) — modifiedParameters header contains LLM badge', () => {
+  const { buildOutput } = require('../hooks/scripts/router/output-builder.js');
+  const { classifyWithRegex } = require('../hooks/scripts/router/classifier.js');
+  const analysis = classifyWithRegex('구현해줘');
+  const result = buildOutput(analysis, true, { prompt: '구현해줘', MODEL: 'gpt-4o-mini' });
+  const msg = result?.modifiedParameters?.userMessage || '';
+  if (!msg.includes('🔍 **분류 방식**: 🤖 LLM(gpt-4o-mini)')) {
+    throw new Error('LLM badge missing from buildOutput(usedLLM=true)');
+  }
+});
+
+
+
+run
+
+
+
 run();
