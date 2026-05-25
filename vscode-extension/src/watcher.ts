@@ -14,6 +14,11 @@ const DEBOUNCE_MS = 500;
 
 const WATCHED_FILES = [
   'subagent-flow.jsonl',
+  'pipeline.jsonl',
+  'test-gate-state.json',
+  'test-evidence.json',
+  'current-todos.json',
+  'precompact-state.json',
   'retrospective-draft.json',
   'retro.jsonl',
 ];

@@ -79,6 +79,16 @@
         "command": "maestroChat.showOutput",
         "title": "Maestro: Show Output Log",
         "icon": "$(output)"
+      },
+      {
+        "command": "maestroChat.runExtensionTests",
+        "title": "Maestro: Run Extension Tests",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "maestroChat.clearActionItems",
+        "title": "Maestro: Clear Action Items",
+        "icon": "$(check-all)"
       }
     ],
     "menus": {
@@ -97,6 +107,11 @@
           "command": "maestroChat.showOutput",
           "when": "view == maestroChat.sidebar",
           "group": "navigation"
+        },
+        {
+          "command": "maestroChat.runExtensionTests",
+          "when": "view == maestroChat.sidebar",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
@@ -113,6 +128,10 @@
         {
           "command": "maestroChat.clearGithubPat",
           "when": "view == maestroChat.sidebar && viewItem == pat-set"
+        },
+        {
+          "command": "maestroChat.clearActionItems",
+          "when": "view == maestroChat.sidebar && viewItem == action-item"
         }
       ]
     },
@@ -179,7 +198,12 @@
           "default": 15000,
           "minimum": 1000,
           "maximum": 60000,
-          "description": "maestro-router.js child_process 타임아웃 (ms)"
+          "description": "legacy maestro-router.js child_process 타임아웃 (ms)"
+        },
+        "maestroChat.useLegacyRouter": {
+          "type": "boolean",
+          "default": false,
+          "description": "true면 extension 내부 TS router 대신 기존 hooks/scripts/maestro-router.js를 child_process로 호출합니다. 마이그레이션 검증용 legacy fallback."
         },
         "maestroChat.debug": {
           "type": "boolean",
@@ -219,6 +243,11 @@
           "minimum": 500,
           "maximum": 20000,
           "description": "logs/pipeline.jsonl에 저장할 각 에이전트 출력 최대 문자 수."
+        },
+        "maestroChat.legacyMcpEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "true면 기존 github-state MCP를 병행 사용 중임을 사이드바에 표시합니다. Extension은 이 설정 없이도 독립 동작합니다."
         }
       }
     }

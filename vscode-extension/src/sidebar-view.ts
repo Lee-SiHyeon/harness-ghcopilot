@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { HarnessPaths } from './state/paths';
 import { loadActionItems, ActionItem } from './state/action-items';
+import { getGateState, getTestEvidence, isEvidenceValid } from './state/test-gate';
 import { envPathFor, getEnvValue } from './env-file';
 
 const KNOWN_AGENTS = new Set([
@@ -37,6 +38,18 @@ interface RetroEntry {
   pipeline?: string;
   selfCritique?: string;
   ts?: string;
+}
+
+interface PipelineEntry {
+  step?: string;
+  output?: string;
+  ts?: string;
+  extra?: Record<string, unknown>;
+}
+
+interface TodoEntry {
+  title?: string;
+  status?: string;
 }
 
 /** Maestro 사이드바에 띄울 노드. */
@@ -105,10 +118,43 @@ export class MaestroTreeProvider implements vscode.TreeDataProvider<MaestroTreeI
     const paths = new HarnessPaths(harnessPath);
     return [
       this.buildPatNode(harnessPath),
+      this.buildMigrationNode(),
       this.buildSessionNode(paths),
+      this.buildTestGateNode(paths),
+      this.buildTodosNode(paths),
+      this.buildToolCallsNode(paths),
       this.buildActionItemsNode(paths),
       this.buildRetroNode(paths),
     ];
+  }
+
+  private buildMigrationNode(): MaestroTreeItem {
+    const cfg = vscode.workspace.getConfiguration('maestroChat');
+    const useLegacyRouter = cfg.get<boolean>('useLegacyRouter', false);
+    const legacyMcp = cfg.get<boolean>('legacyMcpEnabled', false);
+    const children = [
+      new MaestroTreeItem(
+        useLegacyRouter ? 'Router: legacy hook child_process' : 'Router: extension TS',
+        'migration-router',
+        vscode.TreeItemCollapsibleState.None,
+        undefined,
+        { iconId: useLegacyRouter ? 'warning' : 'pass' },
+      ),
+      new MaestroTreeItem(
+        legacyMcp ? 'MCP: legacy 병행' : 'MCP: optional / 미사용',
+        'migration-mcp',
+        vscode.TreeItemCollapsibleState.None,
+        undefined,
+        { iconId: legacyMcp ? 'warning' : 'pass' },
+      ),
+    ];
+    return new MaestroTreeItem(
+      '마이그레이션 상태',
+      'migration',
+      vscode.TreeItemCollapsibleState.Expanded,
+      children,
+      { iconId: 'git-compare', description: useLegacyRouter || legacyMcp ? 'legacy 병행' : 'extension primary' },
+    );
   }
 
   // ── PAT 상태 ───────────────────────────────────────────────────
@@ -249,6 +295,7 @@ export class MaestroTreeProvider implements vscode.TreeDataProvider<MaestroTreeI
         iconId: 'warning',
         description: `${item.source || '?'} / ${item.agent || '?'}`,
         tooltip: JSON.stringify(item, null, 2),
+        contextValue: 'action-item',
       },
     ));
     return new MaestroTreeItem(
@@ -257,6 +304,106 @@ export class MaestroTreeProvider implements vscode.TreeDataProvider<MaestroTreeI
       vscode.TreeItemCollapsibleState.Expanded,
       children,
       { iconId: 'list-tree', description: `${items.length}건` },
+    );
+  }
+
+  private buildTestGateNode(paths: HarnessPaths): MaestroTreeItem {
+    const gate = getGateState(paths);
+    const evidence = getTestEvidence(paths);
+    const valid = isEvidenceValid(paths);
+    const children: MaestroTreeItem[] = [];
+    children.push(new MaestroTreeItem(
+      gate.requiredSince ? `requiredSince: ${formatTime(gate.requiredSince)}` : 'requiredSince: 없음',
+      'test-gate-meta',
+      vscode.TreeItemCollapsibleState.None,
+      undefined,
+      { iconId: gate.requiredSince ? 'warning' : 'pass' },
+    ));
+    children.push(new MaestroTreeItem(
+      evidence.ts ? `last evidence: ${evidence.status || evidence.result || '?'} @ ${formatTime(evidence.ts)}` : 'last evidence: 없음',
+      'test-gate-evidence',
+      vscode.TreeItemCollapsibleState.None,
+      undefined,
+      {
+        iconId: valid ? 'pass' : 'error',
+        tooltip: evidence.evidence || '(증거 없음)',
+        command: { command: 'maestroChat.runExtensionTests', title: 'Run Extension Tests' },
+      },
+    ));
+    return new MaestroTreeItem(
+      'Test Gate',
+      'test-gate',
+      vscode.TreeItemCollapsibleState.Expanded,
+      children,
+      {
+        iconId: valid ? 'pass' : (gate.requiredSince ? 'error' : 'beaker'),
+        description: valid ? 'PASS 유효' : (gate.requiredSince ? 'PASS 필요' : '대기'),
+      },
+    );
+  }
+
+  private buildToolCallsNode(paths: HarnessPaths): MaestroTreeItem {
+    const entries = readPipeline(paths.log('pipeline.jsonl'))
+      .filter(e => typeof e.step === 'string' && e.step.startsWith('tool:'))
+      .slice(-10)
+      .reverse();
+    if (entries.length === 0) {
+      return new MaestroTreeItem(
+        '최근 Tool Calls',
+        'tools',
+        vscode.TreeItemCollapsibleState.Collapsed,
+        [new MaestroTreeItem('(없음)', 'tools-empty', vscode.TreeItemCollapsibleState.None, undefined, { iconId: 'circle-outline' })],
+        { iconId: 'tools' },
+      );
+    }
+    const children = entries.map(e => new MaestroTreeItem(
+      e.step || '(tool)',
+      'tool-call',
+      vscode.TreeItemCollapsibleState.None,
+      undefined,
+      {
+        iconId: e.extra?.exitCode === 0 ? 'pass' : 'tools',
+        description: e.extra?.command ? String(e.extra.command).slice(0, 40) : (e.extra?.path ? String(e.extra.path) : ''),
+        tooltip: JSON.stringify(e, null, 2),
+      },
+    ));
+    return new MaestroTreeItem(
+      '최근 Tool Calls',
+      'tools',
+      vscode.TreeItemCollapsibleState.Collapsed,
+      children,
+      { iconId: 'tools', description: `${entries.length}건` },
+    );
+  }
+
+  private buildTodosNode(paths: HarnessPaths): MaestroTreeItem {
+    const todos = readTodos(paths.log('current-todos.json'));
+    if (todos.length === 0) {
+      return new MaestroTreeItem(
+        'Todo 상태',
+        'todos',
+        vscode.TreeItemCollapsibleState.Collapsed,
+        [new MaestroTreeItem('(없음)', 'todos-empty', vscode.TreeItemCollapsibleState.None, undefined, { iconId: 'circle-outline' })],
+        { iconId: 'checklist' },
+      );
+    }
+    const done = todos.filter(t => t.status === 'completed').length;
+    const children = todos.slice(0, 20).map(t => new MaestroTreeItem(
+      t.title || '(title 없음)',
+      'todo-item',
+      vscode.TreeItemCollapsibleState.None,
+      undefined,
+      {
+        iconId: t.status === 'completed' ? 'pass' : (t.status === 'in-progress' ? 'sync~spin' : 'circle-outline'),
+        description: t.status || '?',
+      },
+    ));
+    return new MaestroTreeItem(
+      'Todo 상태',
+      'todos',
+      vscode.TreeItemCollapsibleState.Collapsed,
+      children,
+      { iconId: 'checklist', description: `${done}/${todos.length}` },
     );
   }
 
@@ -324,6 +471,29 @@ function readRetro(filePath: string): RetroEntry[] {
       try { out.push(JSON.parse(line)); } catch { /* skip */ }
     }
     return out;
+  } catch {
+    return [];
+  }
+}
+
+function readPipeline(filePath: string): PipelineEntry[] {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const lines = raw.split(/\r?\n/).filter(Boolean);
+    const out: PipelineEntry[] = [];
+    for (const line of lines) {
+      try { out.push(JSON.parse(line)); } catch { /* skip */ }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function readTodos(filePath: string): TodoEntry[] {
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return Array.isArray(raw.todos) ? raw.todos : [];
   } catch {
     return [];
   }

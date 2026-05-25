@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import { exec } from 'child_process';
 import { envPathFor, getEnvValue, setEnvValue, clearEnvValue } from './env-file';
 import { HarnessPaths } from './state/paths';
+import { clearActionItems } from './state/action-items';
+import { determineTestResult, recordTestEvidence } from './state/test-gate';
 
 type HarnessResolver = () => string | null;
 type RefreshFn = () => void;
@@ -113,6 +117,54 @@ async function cmdOpenLogs(resolver: HarnessResolver): Promise<void> {
   await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(logs));
 }
 
+async function cmdClearActionItems(resolver: HarnessResolver, refresh: RefreshFn): Promise<void> {
+  const harnessPath = resolver();
+  if (!harnessPath) {
+    vscode.window.showErrorMessage('Maestro harness(.github)를 찾을 수 없습니다.');
+    return;
+  }
+  const pick = await vscode.window.showWarningMessage(
+    'retrospective-draft.json의 actionItems를 비울까요?',
+    { modal: true },
+    '초기화',
+  );
+  if (pick !== '초기화') return;
+  clearActionItems(new HarnessPaths(harnessPath));
+  refresh();
+}
+
+async function cmdRunExtensionTests(resolver: HarnessResolver, refresh: RefreshFn): Promise<void> {
+  const harnessPath = resolver();
+  if (!harnessPath) {
+    vscode.window.showErrorMessage('Maestro harness(.github)를 찾을 수 없습니다.');
+    return;
+  }
+  const paths = new HarnessPaths(harnessPath);
+  const cwd = path.join(harnessPath, 'vscode-extension');
+  const output = vscode.window.createOutputChannel('Maestro Test Run');
+  output.show(true);
+  output.appendLine(`[Maestro] npm test 시작: ${cwd}`);
+  exec('npm test', { cwd, timeout: 180_000, windowsHide: true }, (err, stdout, stderr) => {
+    const exitCode = typeof (err as NodeJS.ErrnoException | null)?.code === 'number'
+      ? Number((err as NodeJS.ErrnoException).code)
+      : (err ? 1 : 0);
+    const combined = [stdout, stderr].filter(Boolean).join('\n');
+    output.appendLine(combined || '(empty output)');
+    const result = determineTestResult(exitCode, combined);
+    recordTestEvidence(paths, {
+      command: 'npm test',
+      result,
+      status: result,
+      exitCode,
+      evidence: combined.split(/\r?\n/).slice(-80).join('\n'),
+    });
+    refresh();
+    const msg = `Maestro extension tests: ${result} (exitCode=${exitCode})`;
+    if (result === 'PASS') vscode.window.showInformationMessage(msg);
+    else vscode.window.showErrorMessage(msg);
+  });
+}
+
 export function registerCommands(
   context: vscode.ExtensionContext,
   resolver: HarnessResolver,
@@ -124,6 +176,8 @@ export function registerCommands(
     vscode.commands.registerCommand('maestroChat.openEnvFile',    () => cmdOpenEnvFile(resolver)),
     vscode.commands.registerCommand('maestroChat.openHarness',    () => cmdOpenHarness(resolver)),
     vscode.commands.registerCommand('maestroChat.openLogs',       () => cmdOpenLogs(resolver)),
+    vscode.commands.registerCommand('maestroChat.clearActionItems', () => cmdClearActionItems(resolver, refresh)),
+    vscode.commands.registerCommand('maestroChat.runExtensionTests', () => cmdRunExtensionTests(resolver, refresh)),
     vscode.commands.registerCommand('maestroChat.refresh',        () => refresh()),
   );
 }

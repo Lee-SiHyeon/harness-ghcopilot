@@ -14,6 +14,7 @@ import { HarnessWatcher } from './watcher';
 import { createLogger, MaestroLogger } from './logging';
 import { inspectGitChanges, isGitChangeQuery, renderGitChangeReport } from './local-git';
 import { finalizeRetrospective } from './state/retrospective';
+import { buildBadge, buildInternalUserMessage, classifyPrompt } from './router/internal';
 
 const PARTICIPANT_ID = 'maestro';
 const CONFIG_SECTION = 'maestroChat';
@@ -86,6 +87,7 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
   const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
   const debug = cfg.get<boolean>('debug', false);
   const timeoutMs = cfg.get<number>('routerTimeoutMs', 15_000);
+  const useLegacyRouter = cfg.get<boolean>('useLegacyRouter', false);
   const executorMode = (cfg.get<string>('executorMode', 'multi-agent') as ExecutorMode);
   const modelFamily = (cfg.get<string>('modelFamily') || '').trim();
   const streamAgentOutputs = cfg.get<boolean>('streamAgentOutputs', true);
@@ -168,40 +170,54 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     return;
   }
 
-  stream.progress('Maestro router 분류 중…');
-  let routerResult;
-  try {
-    routerResult = await callMaestroRouter(request.prompt, {
-      harnessPath: found.harnessPath,
-      timeoutMs,
-    });
-    logger?.info('router result', {
-      sessionId,
-      hookSpecificOutput: routerResult.hookSpecificOutput,
-      decision: routerResult.decision,
-      hasUserMessage: Boolean(routerResult.modifiedParameters?.userMessage),
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    logger?.error('router failed', e);
-    stream.markdown(`⚠️ Maestro router 호출 실패: \`${msg}\`\n\n`);
-    if (debug) stream.markdown(`> harness: \`${found.harnessPath}\``);
-    return;
+  stream.progress(useLegacyRouter ? 'Legacy Maestro router 분류 중…' : 'Extension router 분류 중…');
+  let modelUserMessage = '';
+  let badge = '';
+  let parsed = { intent: '', pipeline: [] as string[], classifier: '' };
+  let routerDecision: string | undefined;
+  let routerReason: string | undefined;
+  if (useLegacyRouter) {
+    try {
+      const routerResult = await callMaestroRouter(request.prompt, {
+        harnessPath: found.harnessPath,
+        timeoutMs,
+      });
+      logger?.info('legacy router result', {
+        sessionId,
+        hookSpecificOutput: routerResult.hookSpecificOutput,
+        decision: routerResult.decision,
+        hasUserMessage: Boolean(routerResult.modifiedParameters?.userMessage),
+      });
+      const userMessage = routerResult.modifiedParameters?.userMessage || request.prompt;
+      modelUserMessage = stripRouterDisplayDirectives(userMessage);
+      badge = extractBadge(userMessage);
+      parsed = badge ? parseBadge(badge) : parsed;
+      routerDecision = routerResult.decision;
+      routerReason = routerResult.reason;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger?.error('legacy router failed', e);
+      stream.markdown(`⚠️ Legacy Maestro router 호출 실패: \`${msg}\`\n\n`);
+      if (debug) stream.markdown(`> harness: \`${found.harnessPath}\``);
+      return;
+    }
+  } else {
+    const analysis = classifyPrompt(request.prompt, paths);
+    badge = buildBadge(analysis);
+    parsed = { intent: analysis.intent, pipeline: analysis.pipeline, classifier: analysis.classifier };
+    modelUserMessage = buildInternalUserMessage(analysis, request.prompt, paths);
+    logger?.info('extension router result', { sessionId, intent: analysis.intent, pipeline: analysis.pipeline });
   }
-
-  const userMessage = routerResult.modifiedParameters?.userMessage || request.prompt;
-  const modelUserMessage = stripRouterDisplayDirectives(userMessage);
-  const badge = extractBadge(userMessage);
 
   if (badge) {
     stream.markdown('```\n' + badge + '\n```\n\n');
   } else {
     stream.markdown('> ⚠️ Maestro 분류 헤더 추출 실패\n\n');
-    if (debug) stream.markdown('```\n[debug] userMessage head:\n' + userMessage.slice(0, 600) + '\n```\n\n');
+    if (debug) stream.markdown('```\n[debug] userMessage head:\n' + modelUserMessage.slice(0, 600) + '\n```\n\n');
   }
 
-  if (routerResult.decision === 'ask' && routerResult.reason) {
-    stream.markdown('\n---\n\n' + routerResult.reason);
+  if (routerDecision === 'ask' && routerReason) {
+    stream.markdown('\n---\n\n' + routerReason);
     return;
   }
 
@@ -233,7 +249,6 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
   }
 
   if (executorMode === 'multi-agent') {
-    const parsed = badge ? parseBadge(badge) : { intent: '', pipeline: [], classifier: '' };
     if (parsed.pipeline.length === 0) {
       stream.markdown('\n⚠️ multi-agent 모드인데 파이프라인을 파싱하지 못했습니다. passthrough로 폴백합니다.\n\n');
       await runPassthrough({ model, userMessage: modelUserMessage, stream, token });

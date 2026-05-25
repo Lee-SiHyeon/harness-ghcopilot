@@ -9,6 +9,8 @@ const { loadAgent } = require('../out/agents/loader.js');
 const { HarnessPaths } = require('../out/state/paths.js');
 const { checkCommand, checkFileWrite, loadGuards } = require('../out/tools/guards.js');
 const { isGitChangeQuery, renderGitChangeReport } = require('../out/local-git.js');
+const { classifyPrompt, buildBadge, buildInternalUserMessage } = require('../out/router/internal.js');
+const { loadPipelineConfig, normalizePipeline } = require('../out/pipeline/config.js');
 const {
   determineTestResult,
   getGateState,
@@ -176,6 +178,46 @@ test('local git query detector and renderer are deterministic', () => {
   assert.match(report, /현재 git 기준 변경/);
   assert.match(report, /M file\.txt/);
   assert.match(report, /abc123/);
+});
+
+test('internal TS router normalizes pipelines and builds badge without legacy hook', () => {
+  const config = loadPipelineConfig(fixture.paths);
+  assert.ok(config.pipelines.length >= 1);
+  assert.deepStrictEqual(
+    normalizePipeline('implement', ['Planner', 'Implementer', 'Reviewer', 'Critic', 'Release']),
+    ['Planner', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release'],
+  );
+  const analysis = classifyPrompt('React 컴포넌트 구현해줘', fixture.paths);
+  assert.strictEqual(analysis.intent, 'implement');
+  assert.ok(analysis.pipeline.includes('Tester'));
+  assert.strictEqual(analysis.pipeline[0], 'Context7 Docs Agent');
+  const badge = buildBadge(analysis);
+  assert.match(badge, /Extension TS router/);
+  const msg = buildInternalUserMessage(analysis, 'React 컴포넌트 구현해줘', fixture.paths);
+  assert.match(msg, /파이프라인 강제/);
+  assert.match(msg, /원본 요청/);
+});
+
+test('internal TS router injects saved todo and precompact resume blocks', () => {
+  write(path.join(fixture.harness, 'logs', 'current-todos.json'), JSON.stringify({
+    todos: [{ id: 1, title: 'finish migration', status: 'in-progress' }]
+  }));
+  write(path.join(fixture.harness, 'logs', 'precompact-state.json'), JSON.stringify({
+    ts: '2026-05-25T00:00:00.000Z',
+    todos: { inProgress: [{ title: 'resume this' }] },
+    gitStatus: [' M file.ts']
+  }));
+  const analysis = classifyPrompt('계획 세워줘', fixture.paths);
+  const msg = buildInternalUserMessage(analysis, '계획 세워줘', fixture.paths);
+  assert.match(msg, /현재 Todo 상태/);
+  assert.match(msg, /세션 재개/);
+  assert.match(msg, /finish migration/);
+});
+
+test('internal TS router treats missing or not-wired reports as fix', () => {
+  const analysis = classifyPrompt('왜 Tester가 pipeline에 안 연결된 것 같지?', fixture.paths);
+  assert.strictEqual(analysis.intent, 'fix');
+  assert.deepStrictEqual(analysis.pipeline, ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']);
 });
 
 test('test-gate marks writes stale and accepts newer PASS evidence', () => {
