@@ -19,6 +19,7 @@ import { finalizeRetrospective } from './state/retrospective';
 import { buildBadge, buildInternalUserMessage, classifyPrompt } from './router/internal';
 import { normalizePipeline, requiresAuditAndRelease } from './pipeline/config';
 import { choosePreferredModel } from './model-selection';
+import { renderLocalDirectAnswer } from './local-direct';
 
 const PARTICIPANT_ID = 'maestro';
 const CONFIG_SECTION = 'maestroChat';
@@ -318,19 +319,29 @@ const handler: vscode.ChatRequestHandler = async (request, context, stream, toke
     return;
   }
 
+  const localDirectAnswer = renderLocalDirectAnswer(request.prompt, parsed.intent, parsed.pipeline);
+  if (localDirectAnswer) {
+    logger?.info('local direct answer', { sessionId, intent: parsed.intent, promptChars: request.prompt.length });
+    stream.markdown(localDirectAnswer);
+    return;
+  }
+
   let model: vscode.LanguageModelChat | undefined;
   try {
-    const selector = modelFamily
-      ? { vendor: 'copilot', family: modelFamily }
-      : { vendor: 'copilot' };
-    const models = await vscode.lm.selectChatModels(selector);
-    model = modelFamily ? models[0] : choosePreferredModel(models);
+    let candidateCount = 1;
+    if (modelFamily) {
+      const models = await vscode.lm.selectChatModels({ vendor: 'copilot', family: modelFamily });
+      model = models[0];
+      candidateCount = models.length;
+    } else {
+      model = request.model || choosePreferredModel(await vscode.lm.selectChatModels({ vendor: 'copilot' }));
+    }
     logger?.info('model selected', {
       sessionId,
-      requestedFamily: modelFamily || '(auto preferred)',
+      requestedFamily: modelFamily || '(chat UI selected)',
       model: model ? { name: model.name, vendor: model.vendor, family: model.family } : null,
-      candidates: models.length,
-      selectionStrategy: modelFamily ? 'configured-family-first' : 'prefer-lower-quota-cost',
+      candidates: candidateCount,
+      selectionStrategy: modelFamily ? 'configured-family-first' : 'chat-request-model',
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -27,6 +27,7 @@ const { loadActionItems } = require('../out/state/action-items.js');
 const { createLogger } = require('../out/logging.js');
 const { npmTestSpawnSpec, runNpmTest } = require('../out/test-runner.js');
 const { choosePreferredModel, scoreModel } = require('../out/model-selection.js');
+const { renderLocalDirectAnswer } = require('../out/local-direct.js');
 
 const pendingTests = [];
 
@@ -464,6 +465,12 @@ test('model selection avoids premium Opus as the default first choice', () => {
   assert.ok(scoreModel(opus) > scoreModel(sonnet));
   assert.strictEqual(choosePreferredModel([opus, sonnet]), sonnet);
   assert.strictEqual(choosePreferredModel([opus, mini, sonnet]), mini);
+});
+
+test('local direct answers avoid LLM for short casual prompts', () => {
+  assert.match(renderLocalDirectAnswer('야 뭐하냐', 'query', []), /로컬에서 바로 답/);
+  assert.match(renderLocalDirectAnswer('사용법 알려줘', 'question', []), /single-session/);
+  assert.strictEqual(renderLocalDirectAnswer('이 파일 고쳐줘', 'fix', ['Implementer']), undefined);
 });
 
 test('test-gate marks writes stale and accepts newer PASS evidence', () => {

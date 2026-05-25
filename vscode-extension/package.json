@@ -374,7 +374,7 @@
         "maestroChat.modelFamily": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Preferred Copilot language model family for `vscode.lm.selectChatModels`. Empty means Maestro auto-prefers lower quota/cost models before premium models such as Opus. Examples depend on installed Copilot support and may include `gpt-4o`, `gpt-4.1`, `claude-sonnet`."
+          "markdownDescription": "Preferred Copilot language model family for `vscode.lm.selectChatModels`. Empty means Maestro uses the model currently selected in the Chat UI. Examples depend on installed Copilot support and may include `gpt-5-mini`, `gpt-4.1`, `claude-sonnet`."
         },
         "maestroChat.streamAgentOutputs": {
           "type": "boolean",
