@@ -14,7 +14,9 @@
     "Chat"
   ],
   "activationEvents": [
-    "onChatParticipant:maestro"
+    "onChatParticipant:maestro",
+    "onView:maestroChat.sidebar",
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -25,6 +27,133 @@
         "fullName": "Maestro",
         "description": "강제 배지 + 멀티 에이전트 오케스트레이션",
         "isSticky": true
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "maestroChat",
+          "title": "Maestro",
+          "icon": "$(symbol-event)"
+        }
+      ]
+    },
+    "views": {
+      "maestroChat": [
+        {
+          "id": "maestroChat.sidebar",
+          "name": "Maestro 상태",
+          "icon": "$(symbol-event)"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "maestroChat.setGithubPat",
+        "title": "Maestro: Set GITHUB_PAT",
+        "icon": "$(key)"
+      },
+      {
+        "command": "maestroChat.clearGithubPat",
+        "title": "Maestro: Clear GITHUB_PAT",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "maestroChat.openEnvFile",
+        "title": "Maestro: Open .env File"
+      },
+      {
+        "command": "maestroChat.openHarness",
+        "title": "Maestro: Open Harness Folder"
+      },
+      {
+        "command": "maestroChat.openLogs",
+        "title": "Maestro: Open Logs Folder"
+      },
+      {
+        "command": "maestroChat.refresh",
+        "title": "Maestro: Refresh Sidebar",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "maestroChat.refresh",
+          "when": "view == maestroChat.sidebar",
+          "group": "navigation"
+        },
+        {
+          "command": "maestroChat.setGithubPat",
+          "when": "view == maestroChat.sidebar",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "maestroChat.setGithubPat",
+          "when": "view == maestroChat.sidebar && viewItem == pat-unset",
+          "group": "inline"
+        },
+        {
+          "command": "maestroChat.setGithubPat",
+          "when": "view == maestroChat.sidebar && viewItem == pat-set",
+          "group": "inline"
+        },
+        {
+          "command": "maestroChat.clearGithubPat",
+          "when": "view == maestroChat.sidebar && viewItem == pat-set"
+        }
+      ]
+    },
+    "languageModelTools": [
+      {
+        "name": "maestro_read_file",
+        "displayName": "Maestro: Read File",
+        "modelDescription": "harness 워크스페이스 내의 파일을 읽습니다 (최대 100KB, 기본). path는 harness 부모 기준 상대경로 또는 절대경로.",
+        "userDescription": "harness 워크스페이스 안의 파일 내용을 읽습니다.",
+        "canBeReferencedInPrompt": false,
+        "tags": ["maestro"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string", "description": "파일 경로 (harness 부모 기준 상대 또는 절대)" },
+            "maxBytes": { "type": "number", "description": "최대 읽기 바이트 (기본 100000, 상한 1000000)" }
+          },
+          "required": ["path"]
+        }
+      },
+      {
+        "name": "maestro_write_file",
+        "displayName": "Maestro: Write File",
+        "modelDescription": "harness 워크스페이스에 파일을 씁니다. .env, 키 파일, 보호 디렉토리(.github/hooks 등)는 file-guard 정책으로 차단되거나 사용자 확인을 요구합니다.",
+        "userDescription": "파일을 생성/덮어쓰기 — 가드 정책을 적용합니다.",
+        "canBeReferencedInPrompt": false,
+        "tags": ["maestro"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path":    { "type": "string" },
+            "content": { "type": "string" }
+          },
+          "required": ["path", "content"]
+        }
+      },
+      {
+        "name": "maestro_run_terminal",
+        "displayName": "Maestro: Run Terminal",
+        "modelDescription": "터미널 명령을 사용자 확인 후 실행합니다. rm -rf, git push --force 등 파괴 패턴은 safety-guard로 차단/경고합니다.",
+        "userDescription": "터미널 명령 실행 (가드 적용).",
+        "canBeReferencedInPrompt": false,
+        "tags": ["maestro"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "command": { "type": "string", "description": "실행할 명령" },
+            "cwd":     { "type": "string", "description": "작업 디렉토리 (선택)" }
+          },
+          "required": ["command"]
+        }
       }
     ],
     "configuration": {

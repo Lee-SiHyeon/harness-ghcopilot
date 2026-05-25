@@ -6,6 +6,11 @@ import { HarnessPaths } from './state/paths';
 import { clearActionItems, loadActionItemsCount } from './state/action-items';
 import { appendFlow, newCorrelationId } from './state/subagent-flow';
 import { executePipeline } from './pipeline/executor';
+import { MaestroTreeProvider } from './sidebar-view';
+import { MaestroStatusBar } from './status-bar';
+import { registerCommands } from './commands';
+import { registerTools } from './tools/registry';
+import { HarnessWatcher } from './watcher';
 
 const PARTICIPANT_ID = 'maestro';
 const CONFIG_SECTION = 'maestroChat';
@@ -49,12 +54,15 @@ function findHarness(): HarnessDiscovery | { error: string } {
       '다음 중 하나를 시도하세요:\n' +
       '1. `.github` 폴더가 있는 프로젝트를 워크스페이스로 여세요.\n' +
       '2. clone한 `.github` 저장소 자체를 워크스페이스로 여세요.\n' +
-      '3. `maestroChat.harnessPath` 설정에 clone한 `.github` 폴더의 절대 경로를 적으세요 ' +
-      '(File → Preferences → Settings → "maestro chat" 검색).',
+      '3. `maestroChat.harnessPath` 설정에 clone한 `.github` 폴더의 절대 경로를 적으세요.',
   };
 }
 
-/** badge 블록에서 작업 유형/파이프라인/분류 방식을 파싱. */
+function resolveHarnessPath(): string | null {
+  const found = findHarness();
+  return 'error' in found ? null : found.harnessPath;
+}
+
 function parseBadge(badge: string): { intent: string; pipeline: string[]; classifier: string } {
   const intentMatch = badge.match(/🎯 \*\*작업 유형\*\*:\s*(.+)/);
   const pipelineMatch = badge.match(/📋 \*\*파이프라인\*\*:\s*(.+)/);
@@ -65,7 +73,6 @@ function parseBadge(badge: string): { intent: string; pipeline: string[]; classi
     .split('→')
     .map(s => s.trim())
     .filter(Boolean)
-    // "자가비평 N건 처리" 같은 메타 단계는 실제 agent가 아니므로 제외
     .filter(s => !/^자가비평\s+\d+건/.test(s));
   const classifier = classifierMatch ? classifierMatch[1].trim() : '';
   return { intent, pipeline, classifier };
@@ -77,7 +84,6 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
   const timeoutMs = cfg.get<number>('routerTimeoutMs', 15_000);
   const executorMode = (cfg.get<string>('executorMode', 'passthrough') as ExecutorMode);
 
-  // 1) harness 위치 결정
   const found = findHarness();
   if ('error' in found) {
     stream.markdown('⚠️ ' + found.error);
@@ -90,7 +96,6 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     stream.markdown(`\n> [debug] harness: \`${found.harnessPath}\` (source: ${found.source}) | mode: \`${executorMode}\`\n\n`);
   }
 
-  // MaestroSessionStart 이벤트 기록 (기존 router도 기록하지만 extension 경로도 표시)
   appendFlow(paths, {
     event: 'MaestroSessionStart',
     agentName: 'Maestro',
@@ -98,7 +103,6 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     source: 'extension-handler',
   });
 
-  // 2) 분류기 호출 (기존 hook 로직 그대로 재사용)
   stream.progress('Maestro router 분류 중…');
   let routerResult;
   try {
@@ -116,7 +120,6 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
   const userMessage = routerResult.modifiedParameters?.userMessage || request.prompt;
   const badge = extractBadge(userMessage);
 
-  // 3) ★ 배지 강제 출력
   if (badge) {
     stream.markdown('```\n' + badge + '\n```\n\n');
   } else {
@@ -124,13 +127,11 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     if (debug) stream.markdown('```\n[debug] userMessage head:\n' + userMessage.slice(0, 600) + '\n```\n\n');
   }
 
-  // 4) HITL gate
   if (routerResult.decision === 'ask' && routerResult.reason) {
     stream.markdown('\n---\n\n' + routerResult.reason);
     return;
   }
 
-  // 5) vscode.lm → Copilot LLM
   let model: vscode.LanguageModelChat | undefined;
   try {
     const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
@@ -148,7 +149,6 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     stream.markdown(`\n> [debug] model: ${model.name} (${model.vendor}/${model.family})\n\n`);
   }
 
-  // 6) 실행 모드 분기
   if (executorMode === 'multi-agent') {
     const parsed = badge ? parseBadge(badge) : { intent: '', pipeline: [], classifier: '' };
     if (parsed.pipeline.length === 0) {
@@ -156,11 +156,9 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
       await runPassthrough({ model, userMessage, stream, token });
       return;
     }
-
     if (debug) {
       stream.markdown(`> [debug] pipeline steps: ${JSON.stringify(parsed.pipeline)}\n\n`);
     }
-
     const actionCount = loadActionItemsCount(paths);
     await executePipeline(parsed.pipeline, {
       paths,
@@ -173,7 +171,6 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
       model,
       debug,
     });
-    // 미해결 actionItems가 라우터를 통해 주입됐을 가능성 — 실행 후 정리
     if (actionCount > 0) {
       clearActionItems(paths);
       if (debug) stream.markdown(`\n> [debug] cleared ${actionCount} actionItems after multi-agent run\n`);
@@ -181,7 +178,6 @@ const handler: vscode.ChatRequestHandler = async (request, _context, stream, tok
     return;
   }
 
-  // passthrough (Phase 1 동작)
   await runPassthrough({ model, userMessage, stream, token });
 };
 
@@ -210,11 +206,55 @@ async function runPassthrough(args: {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  // 1) ChatParticipant
   const participant = vscode.chat.createChatParticipant(PARTICIPANT_ID, handler);
   participant.iconPath = new vscode.ThemeIcon('symbol-event');
   context.subscriptions.push(participant);
+
+  // 2) 사이드바 TreeView
+  const treeProvider = new MaestroTreeProvider(resolveHarnessPath);
+  const treeView = vscode.window.createTreeView('maestroChat.sidebar', {
+    treeDataProvider: treeProvider,
+    showCollapseAll: true,
+  });
+  context.subscriptions.push(treeView);
+
+  // 3) 상태바
+  const statusBar = new MaestroStatusBar(resolveHarnessPath);
+  context.subscriptions.push(statusBar);
+
+  // 4) 통합 refresh — tree + statusBar 동시 갱신
+  const refresh = () => {
+    treeProvider.refresh();
+    statusBar.refresh(resolveHarnessPath);
+  };
+
+  // 5) 명령들
+  registerCommands(context, resolveHarnessPath, refresh);
+
+  // 6) vscode.lm 도구 등록 (Phase 3 스캐폴딩)
+  registerTools(context, resolveHarnessPath);
+
+  // 7) 로그 파일 변경 → 자동 refresh
+  const watcher = new HarnessWatcher(refresh);
+  watcher.watch(resolveHarnessPath());
+  context.subscriptions.push({ dispose: () => watcher.dispose() });
+
+  // 8) 설정/워크스페이스 변경 → harness 재발견 + refresh + watch
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration(CONFIG_SECTION)) {
+        watcher.watch(resolveHarnessPath());
+        refresh();
+      }
+    }),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      watcher.watch(resolveHarnessPath());
+      refresh();
+    }),
+  );
 }
 
 export function deactivate(): void {
-  // ChatParticipant는 subscriptions로 자동 dispose
+  /* ChatParticipant + subscriptions로 자동 dispose */
 }

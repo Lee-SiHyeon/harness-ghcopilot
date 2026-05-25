@@ -14,7 +14,8 @@
 | **0** ChatParticipant 등록, 배지 강제 출력, vscode.lm 호출 | ✅ |
 | **1** 사용자 시나리오 대응(host 프로젝트 / standalone clone) + 설정 + F5 디버그 | ✅ |
 | **2** 멀티 에이전트 순차 실행기 + state TS 레이어 + agent loader | ✅ |
-| 3 safety/file-guard tool API 인터셉터 이주 + 도구 호출 지원 | ❌ |
+| **3** 사이드바 UI + 상태바 + GITHUB_PAT 편집 + vscode.lm 도구 등록(가드 통합) | ✅ |
+| 3.5 executor에서 tool calling 활용 (Implementer가 실제 파일 수정) | ❌ |
 | 4 Tester FAIL → Implementer 재시도 루프, 회고 자동 트리거 | ❌ |
 | 5 기존 hook 비활성화 | ❌ |
 
@@ -152,6 +153,39 @@ for await (fragment) stream.markdown(fragment)
 | 매번 regex 폴백으로 분류 | `.env`에 `GITHUB_PAT=ghp_...` 설정하면 gpt-4o-mini 사용. `.env`는 harness 폴더의 부모(cwd)에 둬야 함 |
 | F5 눌렀는데 Extension Host가 안 뜸 | `.vscode/launch.json` 있는지 확인. 또는 `Run and Debug → Run Extension` 선택 후 ▶ |
 
+## UI 구성 (Phase 3)
+
+### 사이드 패널 (Activity Bar → 🎼 Maestro)
+- **GITHUB_PAT 상태**: 설정 여부 표시. 클릭하면 SetPAT 명령 실행
+- **현재 세션**: sessionId, 시작 시각, 진행 중인 에이전트(스피너), 최근 완료된 에이전트(소요시간/상태)
+- **미해결 개선 항목**: `retrospective-draft.json`의 actionItems
+- **최근 회고**: `retro.jsonl`의 마지막 5건 (제목/날짜/타입, hover 시 자기비평)
+
+> 자동 새로고침: `logs/subagent-flow.jsonl`, `retrospective-draft.json`, `retro.jsonl` 변경 시 debounce 500ms 후 refresh. 수동: 사이드바 우측 상단 🔄.
+
+### 상태바
+- `🎼 Maestro [PAT ✅]` 또는 `🎼 Maestro [PAT ⚠️]` (warning 배경) 또는 `[harness ?]`
+- 클릭 → `Maestro: Set GITHUB_PAT` 명령
+
+### 명령 팔레트 (`Ctrl+Shift+P`)
+| 명령 | 동작 |
+|---|---|
+| Maestro: Set GITHUB_PAT | password InputBox → `.env`에 기록 |
+| Maestro: Clear GITHUB_PAT | 확인 후 GITHUB_PAT 라인만 제거 (다른 키 보존) |
+| Maestro: Open .env File | `.env` 파일 에디터로 열기 (없으면 생성) |
+| Maestro: Open Harness Folder | 탐색기에서 harness 노출 |
+| Maestro: Open Logs Folder | `logs/` 노출 |
+| Maestro: Refresh Sidebar | 수동 새로고침 |
+
+### vscode.lm 도구 (Phase 3 스캐폴딩)
+| 도구 | 가드 |
+|---|---|
+| `maestro_read_file` | workspace 외부 deny |
+| `maestro_write_file` | `.env`/키 파일 deny, `.github/{hooks,agents,...}` ask, `maestro.agent.md` ask |
+| `maestro_run_terminal` | `meta/guards.json` destructiveCommands 매칭 시 ask + 자동 실행 X (사용자가 Enter) |
+
+> ⚠️ Phase 3에서는 도구가 **등록만** 되어 있고 executor는 아직 사용하지 않는다. Phase 3.5에서 executor가 Implementer를 부를 때 `requestOptions.tools`로 전달 예정.
+
 ## 실행 모드
 
 ### passthrough (기본, Phase 1 동작)
@@ -168,13 +202,15 @@ for await (fragment) stream.markdown(fragment)
 
 `settings.json`에서 `maestroChat.executorMode` 전환.
 
-## 알려진 한계 (Phase 2)
+## 알려진 한계 (Phase 3)
 
-- multi-agent 모드에서도 **도구 호출 안 됨** — Implementer가 "이렇게 수정할 것입니다"라고 텍스트로만 답함 (실제 파일 수정 X). Phase 3에서 vscode.lm tools API로 해결.
-- Tester FAIL 시 Implementer 재호출 루프 없음. Phase 4 예정.
-- 병렬 실행 없음. 모든 step 순차.
+- 도구는 등록만 됨 — executor가 아직 사용하지 않음 → Phase 3.5
+- `maestro_run_terminal`은 터미널에 텍스트만 입력 (자동 실행 X) — Phase 4에서 결과 캡처와 함께 도입
+- Tester FAIL 시 Implementer 재호출 루프 없음 — Phase 4
+- 병렬 실행 없음
 - 매 turn 새 프로세스로 router 호출 (~수십 ms 오버헤드)
 - vscode.lm으로 받는 모델은 Copilot 설정 따름
+- 사이드바 watcher는 Node fs.watch 기반 (workspace 외부 harness도 감시 가능하지만 일부 환경에서 이벤트 누락 가능 → 수동 refresh로 보완)
 
 ## 다음 단계
 
