@@ -47,7 +47,7 @@ Required JSON schema (fill in values based on the user request):
 {"intent":"implement","complexity":5,"scope":"single","security":[],"stacks":[],"task_count":1,"pipeline":["Planner","Implementer","Tester","Reviewer"],"needs_todo":true,"reason":"Korean 1-sentence reason"}
 
 Field rules:
-- intent: "implement"(new code) | "fix"(bug) | "investigate"(root cause analysis, debugging) | "review"(audit) | "document"(docs) | "plan"(design only) | "question"(explain) | "query"(simple lookup) | "release"(version bump, publish, deploy) | "scout"(research trends, self-improvement discovery) | "scout_loop"(Scout investigation followed by bounded Ralph Loop style self-correction)
+- intent: "implement"(new code) | "fix"(bug) | "investigate"(root cause analysis, debugging) | "review"(audit, 점검, inspect, check system) | "document"(docs) | "plan"(design only) | "question"(explain) | "query"(simple lookup) | "release"(version bump, publish, deploy) | "scout"(research trends, self-improvement discovery) | "scout_loop"(Scout investigation followed by bounded Ralph Loop style self-correction)
 - complexity: 0-10 integer (simple=1-2, moderate=4-5, complex=7-8, architecture=9-10)
 - scope: "single"(one file) | "multi"(several files) | "architecture"(whole project)
 - security: subset of ["auth","password","api-key","session","db-query","env-vars","crypto","vuln-pattern"]
@@ -205,11 +205,11 @@ function classifyWithRegex(p) {
   // scout는 question보다 먼저 평가 — 자기개선/트렌드 조사 우선
   else if (/자기개선|트렌드|최신.*패턴|awesome.*harness.*engineering|github.*stars?|scout/i.test(p)) intent = 'scout';
   // review/audit는 question보다 먼저 평가 — review+question 혼합 프롬프트는 review로 처리
-  else if (/리뷰|검토|확인해|review|audit/i.test(p))                               intent = 'review';
+  else if (/리뷰|검토|확인해|점검해|inspect|review|audit/i.test(p))                  intent = 'review';
   // discovery 패턴: ?$ 보다 먼저 체크 ("없는 것 같지?" 등 포함)
   else if (/없[는것지](\s*것)?\s*같[지다아]?|빠져\s*있|누락\s*됐|안\s*연결|not.*wired|missing.*pipeline|missing.*agent/i.test(p)) intent = 'fix';
   // investigate 강력 패턴: "왜+오류/버그/안 되" 조합 → ?$ 보다 먼저 체크
-  else if (/왜.*(?:안\s*되|안\s*됨|에러|오류|버그|실패|crash)|(?:에러|오류|버그).*왜/i.test(p)) intent = 'investigate';
+  else if (/왜.*(?:안\s*되|안\s*됨|에러|오류|버그|실패|crash|안\s*따르|안\s*지키|안\s*따라)|(?:에러|오류|버그).*왜/i.test(p)) intent = 'investigate';
   else if (/\?$|뭐야|알려줘|설명해줘|what\s+is|how\s+does|explain/i.test(p)) intent = 'question';
   else if (/문서화|docs|document/i.test(p))                                    intent = 'document';
   else if (/왜|원인|루트|디버그|조사|investigate/i.test(p))                    intent = 'investigate';

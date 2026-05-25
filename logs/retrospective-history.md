@@ -383,3 +383,15 @@
 
 **자기비평**: 첫 구현에서 prompts/agent/file guard 로더의 경로 containment 검사를 충분히 강제하지 않아 Reviewer 단계에서 path traversal Critical 3건이 발견됐다. 또한 LangGraph가 미설치라 builder 통합 테스트가 skip되어 fan-out 라우팅 위험을 초기 테스트에서 잡지 못했다.
 **다음 번 개선**: 경로를 입력으로 받는 모든 신규 Python 로더/가드는 `Path.resolve()` + `relative_to(base)` containment 테스트를 먼저 작성한 뒤 구현한다. LangGraph 관련 변경에서는 optional dependency가 미설치여도 라우팅 구조를 정적으로 검사하는 테스트를 추가해 builder fan-out을 조기에 탐지한다.
+
+---
+## 2026-05-25 — 훅 라우팅 분류 수정 (fix: classifier.js review/investigate 패턴)
+
+| 항목 | 내용 |
+|------|------|
+| 실행 | Investigator(직접) ✅ → Implementer #1(점검해 추가, 조사 패턴 강화) ✅ → Reviewer ✅ → Implementer #2(점검→점검해 명령형 한정) ✅ → Tester(maestro-suite 178/178) ✅ → Critic → Release |
+| 건너뜀 | 없음 |
+| 반복 이슈 | hook-audit.jsonl 오늘 항목 없다고 잘못 진단 (Tail 5가 어제 항목) |
+
+**자기비평**: hook-audit.jsonl 확인 시 날짜 필터 없이 -Tail 5만 확인해서 오늘 항목이 없다고 잘못 진단했다. 실제로는 오늘 오전부터 hooks가 정상 동작하고 있었다.
+**다음 번 개선**: 훅 동작 여부 진단 시 반드시 날짜 필터(Where-Object { \.ts -ge 오늘 })를 사용해서 오늘 항목만 필터링한다.
