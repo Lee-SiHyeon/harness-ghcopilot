@@ -1,0 +1,41 @@
+{
+  "name": "maestro-chat",
+  "displayName": "Maestro Chat",
+  "description": "ChatParticipant @maestro — 강제 배지 출력 + Maestro 파이프라인 오케스트레이션",
+  "version": "0.0.1",
+  "publisher": "local",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [
+    "onChatParticipant:maestro"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "maestro",
+        "name": "maestro",
+        "fullName": "Maestro",
+        "description": "강제 배지 + 멀티 에이전트 오케스트레이션",
+        "isSticky": true
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.95.0",
+    "typescript": "^5.7.0"
+  }
+}
