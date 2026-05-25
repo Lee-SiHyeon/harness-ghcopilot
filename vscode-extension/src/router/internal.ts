@@ -54,17 +54,21 @@ const INTENT_RULES: ReadonlyArray<{ re: RegExp; intent: string; reason: string }
   { re: /scout.*ralph|ralph.*scout|scout\s*loop|자기개선.*루프|완료까지.*scout|scout.*완료까지/i, intent: 'scout_loop', reason: 'scout_loop keywords' },
   { re: /자기개선|트렌드|최신.*패턴|awesome.*harness.*engineering|github.*stars?|scout/i, intent: 'scout', reason: 'scout keywords' },
   { re: /안\s*연결|누락\s*됐|not.*wired|missing.*pipeline|missing.*agent/i, intent: 'fix', reason: 'missing/not-wired pattern' },
+  { re: /push\s*protection|secret\s*scanning|푸시.*거부|push.*rejected/i, intent: 'fix', reason: 'push protection fix pattern' },
+  { re: /(?:release|gate|context|history|배지).*왜|why.*(?:context|history|missing|release|gate)/i, intent: 'investigate', reason: 'why release/context pattern' },
+  { re: /커밋|푸시|push|commit|릴리즈|배포해|버전.*올려|publish|deploy(?!ment)|release|tag/i, intent: 'release', reason: 'release/commit/push keywords' },
+  { re: /문서화|docs|document|README|레퍼런스|설명\s*문서|문서\s*작성/i, intent: 'document', reason: 'document keywords' },
   { re: /리뷰|검토|확인해|점검해|inspect|review|audit/i, intent: 'review', reason: 'review keywords' },
-  { re: /고쳐|수정해|버그|에러|fix|debug/i, intent: 'fix', reason: 'fix/bug/debug keywords' },
-  { re: /부족|아쉬운|개선점|문제점|보완할|빠져\s*있|what.*(?:missing|lacking)|(?:missing|lacking).*(?:what|feature)/i, intent: 'inspect', reason: 'lacking/missing pattern' },
-  { re: /왜.*(?:안\s*돼|안\s*되|안\s*됨|에러|오류|버그|실패|crash|안\s*따르|안\s*지키|안\s*따라)|(?:에러|오류|버그).*왜/i, intent: 'investigate', reason: 'why-error pattern' },
+  { re: /보안|취약점|수정하지\s*말고|파일\s*수정하지\s*말고/i, intent: 'review', reason: 'read-only review/security keywords' },
+  { re: /고쳐|수정해|해결|버그|에러|fix|debug|push protection|OOM|CI\s*고쳐/i, intent: 'fix', reason: 'fix/bug/debug keywords' },
+  { re: /부족|아쉬운|개선점|문제점|보완할|빠져\s*있|약점|병목|평가|분석만|read-only\s*분석|what.*(?:missing|lacking)|(?:missing|lacking).*(?:what|feature)/i, intent: 'inspect', reason: 'lacking/inspection pattern' },
+  { re: /왜.*(?:안\s*돼|안\s*되|안\s*됨|에러|오류|버그|실패|crash|안\s*따르|안\s*지키|안\s*따라|막힘|missing)|(?:에러|오류|버그|실패|crash).*왜|root\s*cause|원인|안\s*보여\s*왜|이상하게\s*대답/i, intent: 'investigate', reason: 'why-error pattern' },
   { re: /디버그|디버깅/i, intent: 'investigate', reason: '디버그/디버깅 keywords' },
+  { re: /어떻게\s*구현|아키텍처\s*잡|설계|계획|plan|design|architect/i, intent: 'plan', reason: 'plan keywords' },
+  { re: /만들어|추가|구현|작성|생성|리팩토링|최적화|정리|구조\s*바꿔|보강|개선|build|create|implement|improve|마이그레이션|migration/i, intent: 'implement', reason: 'implement keywords' },
   { re: /\?$|뭐야|알려줘|설명해줘|what\s+is|how\s+does|explain/i, intent: 'question', reason: 'question pattern' },
-  { re: /문서화|docs|document/i, intent: 'document', reason: 'document keywords' },
-  { re: /왜|원인|루트|디버그|조사|investigate/i, intent: 'investigate', reason: '왜/원인/investigate keywords' },
-  { re: /설계|계획|plan|design|architect/i, intent: 'plan', reason: 'plan keywords' },
-  { re: /릴리즈|배포해|버전.*올려|publish|deploy(?!ment)|release/i, intent: 'release', reason: 'release keywords' },
-  { re: /만들어|추가해|구현해|작성해|작성해줘|build|create|implement|마이그레이션|migration/i, intent: 'implement', reason: 'implement keywords' },
+  { re: /요약|summary/i, intent: 'question', reason: 'summary/question keywords' },
+  { re: /왜|루트|디버그|조사|investigate/i, intent: 'investigate', reason: '왜/조사/investigate keywords' },
 ];
 
 export function classifyPrompt(prompt: string, paths: HarnessPaths): InternalAnalysis {
@@ -106,7 +110,7 @@ export function classifyPrompt(prompt: string, paths: HarnessPaths): InternalAna
 
   const config = loadPipelineConfig(paths);
   const ssotMatch = config.pipelines.find(pipe => (pipe.keywords || []).some(k => p.includes(k)));
-  const useSsotMatch = !['question', 'query', 'fix', 'implement', 'scout_loop'].includes(intent);
+  const useSsotMatch = intent === 'query';
   const base = (useSsotMatch ? ssotMatch?.steps : undefined) || INTENT_PIPELINES[intent] || INTENT_PIPELINES.query;
   let pipeline = normalizePipeline(intent, base);
   if (shouldUseContext7(p, intent, stacks) && !pipeline.includes('Context7 Docs Agent')) {
