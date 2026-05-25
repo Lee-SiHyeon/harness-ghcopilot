@@ -7,7 +7,14 @@ import { checkCommand, checkFileWrite } from './guards';
 import { appendPipelineStep } from '../state/pipeline-log';
 import { determineTestResult, isTestCommand, markFileChanged, recordTestEvidence } from '../state/test-gate';
 import { redactSecrets } from '../state/redaction';
-import { AGENT_TOOL_NAME, getActiveInvokerContext, InvokeAgentInput, invokeAgent, setActiveInvokerContext } from './agent-tool';
+import {
+  AGENT_TOOL_NAME,
+  clearActiveInvokerContext,
+  getActiveInvokerContext,
+  InvokeAgentInput,
+  invokeAgent,
+  setActiveInvokerContext,
+} from './agent-tool';
 
 /**
  * vscode.lm 도구 registry.
@@ -36,7 +43,7 @@ export const MAESTRO_READONLY_TOOL_NAMES = [
 export const MAESTRO_INVOKE_AGENT_TOOL_NAME = AGENT_TOOL_NAME;
 
 /** single-session 시작/종료 시 extension이 호출해 모델 컨텍스트를 주입/정리한다. */
-export { setActiveInvokerContext };
+export { clearActiveInvokerContext, setActiveInvokerContext };
 
 interface ReadFileInput {
   path: string;
@@ -382,7 +389,8 @@ export function registerTools(
       };
     },
     async invoke(opts, token) {
-      const result = await invokeAgent(opts.input, token, getActiveInvokerContext());
+      const contextId = typeof opts.input.context_id === 'string' ? opts.input.context_id : '';
+      const result = await invokeAgent(opts.input, token, getActiveInvokerContext(contextId));
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(result),
       ]);

@@ -349,7 +349,7 @@ test('extension router parity matrix covers hook classifier core intents', () =>
     ['왜 그래?', 'question', []],
     ['문서화해줘', 'document', ['Context7 Docs Agent', 'Documenter', 'Critic', 'Release']],
     ['없는 것 같지?', 'question', []],
-    ['누락됐어', 'query', []],
+    ['누락됐어', 'fix', ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']],
     ['버그 고쳐', 'fix', ['Investigator', 'Implementer', 'Tester', 'Reviewer', 'Critic', 'Release']],
     ['설계해줘', 'plan', ['Planner']],
     ['릴리즈해줘', 'release', ['Release', 'Critic']],
@@ -374,6 +374,11 @@ test('extension package contributes MCP view and commands', () => {
   const tools = pkg.contributes.languageModelTools.map(t => t.name);
   assert.ok(tools.includes('maestro_list_files'));
   assert.ok(tools.includes('maestro_search_files'));
+  const searchFiles = pkg.contributes.languageModelTools.find(t => t.name === 'maestro_search_files');
+  assert.strictEqual(searchFiles.inputSchema.properties.regex.type, 'boolean');
+  assert.ok(tools.includes('maestro_invoke_agent'));
+  const invokeAgent = pkg.contributes.languageModelTools.find(t => t.name === 'maestro_invoke_agent');
+  assert.ok(invokeAgent.inputSchema.required.includes('context_id'));
   assert.ok(pkg.contributes.configuration.properties['maestroChat.executorMode'].enum.includes('single-session'));
 });
 
@@ -528,20 +533,28 @@ test('agent-tool: AGENT_TOOL_NAME constant and MAX_INVOKE_DEPTH', () => {
 
 test('agent-tool: validateInvokeInput rejects null model', () => {
   const { validateInvokeInput } = require('../out/tools/agent-constants.js');
-  const err = validateInvokeInput({ model: null, paths: {}, toolToken: undefined, depth: 0 }, { agent_name: 'Planner', task: 'test' });
+  const err = validateInvokeInput({ id: 'ctx-a', model: null, paths: {}, toolToken: undefined, depth: 0 }, { context_id: 'ctx-a', agent_name: 'Planner', task: 'test' });
   assert.ok(err !== null, 'Should return error for null model');
   assert.ok(err.includes('⚠'), 'Should be warning msg: ' + err);
 });
 
 test('agent-tool: validateInvokeInput blocks depth overflow', () => {
   const { validateInvokeInput, MAX_INVOKE_DEPTH } = require('../out/tools/agent-constants.js');
-  const err = validateInvokeInput({ model: {}, paths: {}, toolToken: undefined, depth: MAX_INVOKE_DEPTH }, { agent_name: 'X', task: 'y' });
+  const err = validateInvokeInput({ id: 'ctx-a', model: {}, paths: {}, toolToken: undefined, depth: MAX_INVOKE_DEPTH }, { context_id: 'ctx-a', agent_name: 'X', task: 'y' });
   assert.ok(err !== null, 'Should fail at max depth');
+});
+
+test('agent-tool: validateInvokeInput requires matching context_id', () => {
+  const { validateInvokeInput } = require('../out/tools/agent-constants.js');
+  const missing = validateInvokeInput({ id: 'ctx-a', model: {}, paths: {}, toolToken: undefined, depth: 0 }, { agent_name: 'Reviewer', task: 'check' });
+  assert.ok(missing.includes('context_id'));
+  const mismatch = validateInvokeInput({ id: 'ctx-a', model: {}, paths: {}, toolToken: undefined, depth: 0 }, { context_id: 'ctx-b', agent_name: 'Reviewer', task: 'check' });
+  assert.ok(mismatch.includes('일치하지'));
 });
 
 test('agent-tool: validateInvokeInput passes valid inputs', () => {
   const { validateInvokeInput } = require('../out/tools/agent-constants.js');
-  const ok = validateInvokeInput({ model: {}, paths: {}, toolToken: undefined, depth: 0 }, { agent_name: 'Reviewer', task: 'check' });
+  const ok = validateInvokeInput({ id: 'ctx-a', model: {}, paths: {}, toolToken: undefined, depth: 0 }, { context_id: 'ctx-a', agent_name: 'Reviewer', task: 'check' });
   assert.strictEqual(ok, null);
 });
 

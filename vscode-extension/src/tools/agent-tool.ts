@@ -14,25 +14,33 @@ import { redactSecrets } from '../state/redaction';
 import { AGENT_TOOL_NAME, InvokerContext, MAX_INVOKE_DEPTH, validateInvokeInput } from './agent-constants';
 export { AGENT_TOOL_NAME, MAX_INVOKE_DEPTH } from './agent-constants';
 
-/** extension이 single-session 시작 전 setActive*로 주입하고 종료 후 null로 정리한다. */
-let _ctx: InvokerContext = { model: null, paths: null, toolToken: undefined, depth: 0 };
+const contexts = new Map<string, InvokerContext>();
 
+/** extension이 single-session 시작 전 context_id별로 주입하고 종료 후 정리한다. */
 export function setActiveInvokerContext(
+  id: string,
   model: vscode.LanguageModelChat | null,
   paths: HarnessPaths | null,
   toolToken?: vscode.ChatParticipantToolToken,
 ): void {
-  _ctx.model = model;
-  _ctx.paths = paths;
-  _ctx.toolToken = toolToken;
-  _ctx.depth = 0;
+  if (!model || !paths) {
+    contexts.delete(id);
+    return;
+  }
+  contexts.set(id, { id, model, paths, toolToken, depth: 0 });
 }
 
-export function getActiveInvokerContext(): InvokerContext {
-  return _ctx;
+export function clearActiveInvokerContext(id: string): void {
+  contexts.delete(id);
+}
+
+export function getActiveInvokerContext(id: string): InvokerContext {
+  return contexts.get(id) ?? { id, model: null, paths: null, toolToken: undefined, depth: 0 };
 }
 
 export interface InvokeAgentInput {
+  /** single-session 요청마다 extension이 발급한 컨텍스트 ID */
+  context_id: string;
   /** agents/ 폴더에서 로드할 에이전트 이름. 예: "Planner", "Reviewer" */
   agent_name: string;
   /** 이 에이전트에게 맡길 구체적인 작업 지시 */

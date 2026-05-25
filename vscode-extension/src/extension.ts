@@ -10,7 +10,12 @@ import { MaestroTreeProvider } from './sidebar-view';
 import { McpTreeProvider } from './mcp-view';
 import { MaestroStatusBar } from './status-bar';
 import { registerCommands } from './commands';
-import { registerTools, setActiveInvokerContext, MAESTRO_INVOKE_AGENT_TOOL_NAME } from './tools/registry';
+import {
+  clearActiveInvokerContext,
+  registerTools,
+  setActiveInvokerContext,
+  MAESTRO_INVOKE_AGENT_TOOL_NAME,
+} from './tools/registry';
 import { HarnessWatcher } from './watcher';
 import { createLogger, MaestroLogger } from './logging';
 import { inspectGitChanges, isGitChangeQuery, renderGitChangeReport } from './local-git';
@@ -421,13 +426,15 @@ async function runSingleSession(args: {
 }): Promise<void> {
   // pipeline이 있으면 maestro_invoke_agent 순서 지시 블록을 앞에 주입
   let userMessageWithPipeline = args.userMessage;
+  const invokeContextId = newCorrelationId();
   if (args.pipeline && args.pipeline.length > 0) {
     const steps = args.pipeline.map((s, i) =>
-      `${i + 1}. maestro_invoke_agent({ agent_name: "${s}", task: "<이전 단계 결과를 반영한 작업>" })`
+      `${i + 1}. maestro_invoke_agent({ context_id: "${invokeContextId}", agent_name: "${s}", task: "<이전 단계 결과를 반영한 작업>" })`
     ).join("\n");
     const pipelineStr = args.pipeline.join(" -> ");
     const directive =
       `## [파이프라인 실행 지시]\nintent: ${args.intent ?? 'unknown'}\npipeline: ${pipelineStr}\n\n` +
+      `모든 maestro_invoke_agent 호출에는 반드시 context_id: "${invokeContextId}" 를 포함하세요.\n` +
       `아래 순서대로 maestro_invoke_agent 도구로 각 에이전트를 호출하세요:\n${steps}\n\n` +
       `각 단계 출력을 다음 단계 prior_context로 전달하세요.\n\n---\n\n`;
     userMessageWithPipeline = directive + args.userMessage;
@@ -436,7 +443,7 @@ async function runSingleSession(args: {
   const OUTER_TOOL_NAMES = ['maestro_read_file', 'maestro_list_files', 'maestro_search_files', MAESTRO_INVOKE_AGENT_TOOL_NAME];
   const tools = vscode.lm.tools.filter(t => OUTER_TOOL_NAMES.includes(t.name));
   let toolCallCount = 0;
-  setActiveInvokerContext(args.model, args.paths ?? null, args.toolInvocationToken);
+  setActiveInvokerContext(invokeContextId, args.model, args.paths ?? null, args.toolInvocationToken);
   try {
     const maxRounds = tools.length > 0 ? 10 : 1;
     for (let round = 0; round < maxRounds; round++) {
@@ -493,7 +500,7 @@ async function runSingleSession(args: {
       throw e;
     }
   } finally {
-    setActiveInvokerContext(null, null);
+    clearActiveInvokerContext(invokeContextId);
   }
 }
 async function runPassthrough(args: {

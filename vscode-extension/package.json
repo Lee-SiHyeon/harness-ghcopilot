@@ -229,6 +229,10 @@
               "type": "string",
               "description": "파일명 와일드카드 필터 예: *.ts"
             },
+            "regex": {
+              "type": "boolean",
+              "description": "true면 pattern을 정규식으로 해석합니다. 기본 false는 literal 검색입니다."
+            },
             "maxMatches": {
               "type": "number",
               "description": "최대 매치 수 (기본 100, 상한 500)"
@@ -287,6 +291,42 @@
           },
           "required": [
             "command"
+          ]
+        }
+      },
+      {
+        "name": "maestro_invoke_agent",
+        "displayName": "Maestro: Invoke Agent",
+        "modelDescription": "single-session 모드에서 Maestro 하위 에이전트를 현재 요청 컨텍스트 안에서 호출합니다. extension이 제공한 context_id를 반드시 그대로 전달해야 합니다.",
+        "userDescription": "Maestro 하위 에이전트를 호출합니다.",
+        "canBeReferencedInPrompt": false,
+        "tags": [
+          "maestro"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "context_id": {
+              "type": "string",
+              "description": "extension이 이번 요청에 발급한 컨텍스트 ID"
+            },
+            "agent_name": {
+              "type": "string",
+              "description": "호출할 Maestro 에이전트 이름"
+            },
+            "task": {
+              "type": "string",
+              "description": "해당 에이전트에게 맡길 구체적인 작업"
+            },
+            "prior_context": {
+              "type": "string",
+              "description": "이전 단계 출력 또는 추가 컨텍스트"
+            }
+          },
+          "required": [
+            "context_id",
+            "agent_name",
+            "task"
           ]
         }
       }

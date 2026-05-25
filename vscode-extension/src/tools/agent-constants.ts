@@ -3,12 +3,14 @@ export const AGENT_TOOL_NAME = 'maestro_invoke_agent';
 export const MAX_INVOKE_DEPTH = 2;
 
 export interface InvokeAgentInputRaw {
+  context_id?: unknown;
   agent_name?: unknown;
   task?: unknown;
   prior_context?: unknown;
 }
 
 export interface InvokerContext {
+  id?: string;
   model: unknown;
   paths: unknown;
   toolToken: unknown;
@@ -26,6 +28,8 @@ export function validateInvokeInput(
   if (!ctx.model) return '⚠️ maestro_invoke_agent: 활성 모델 없음. single-session 모드에서만 사용 가능합니다.';
   if (!ctx.paths) return '⚠️ maestro_invoke_agent: harness paths가 없습니다.';
   if (ctx.depth >= MAX_INVOKE_DEPTH) return '⚠️ maestro_invoke_agent: 최대 중첩 깊이(' + MAX_INVOKE_DEPTH + ') 초과 — 재귀 호출 차단됨.';
+  if (!input.context_id || typeof input.context_id !== 'string') return '⚠️ maestro_invoke_agent: context_id가 비어 있습니다.';
+  if (ctx.id && input.context_id !== ctx.id) return '⚠️ maestro_invoke_agent: context_id가 현재 세션과 일치하지 않습니다.';
   if (!input.agent_name || typeof input.agent_name !== 'string') return '⚠️ maestro_invoke_agent: agent_name이 비어 있습니다.';
   if (!input.task || typeof input.task !== 'string') return '⚠️ maestro_invoke_agent: task가 비어 있습니다.';
   return null;
